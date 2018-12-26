@@ -357,7 +357,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      * maps layer name to dnn.component, in topological sort prev nodes will be initialized
      */
     using DnnComponentsForLayer = std::list<std::pair<std::string, intel_dnn_component_t>>;
-    std::list<std::pair<std::string, intel_dnn_component_t>> dnnComponentsForLayer;
+    DnnComponentsForLayer dnnComponentsForLayer;
 
     /**
      * @brief returns corresponding dnn layer for topology layer

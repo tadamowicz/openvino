@@ -1566,6 +1566,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         insertCopyLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
         insertDiagonalLayer(layers);
+        layers = CNNNetSortTopologically(*network.get());
     };
 
     Config supported = Config({
@@ -1671,11 +1672,25 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     for (auto layer = sortedNoMem.begin(); layer != sortedNoMem.end(); ++layer) {
         CreateLayerPrimitive(*layer);
     }
-    gnamem->bind_ptr(&ptr_outputs_global.front(), &dnnComponentsForLayer.back().second.ptr_outputs);
+    DnnComponentsForLayer::iterator output_component = std::find_if(dnnComponentsForLayer.begin(),
+                                                        dnnComponentsForLayer.end(),
+                                                        [&](const std::pair<std::string, intel_dnn_component_t>& v)
+                                                        { return outputsDataMap.begin()->first == v.first; });
+
+    if (output_component == dnnComponentsForLayer.end()) {
+        if (dnnComponentsForLayer.empty()) {
+            THROW_GNA_EXCEPTION << "No outputs found in internal structures";
+        }
+        // likely layer is fused. Take last one
+        output_component = std::prev(dnnComponentsForLayer.end());
+        gnalog() << "Output layer "<< outputsDataMap.begin()->first
+                    << " has not been found in component list. Took  "
+                    << output_component->first << " instead \n" << std::flush;
+    }
+    gnamem->bind_ptr(&ptr_outputs_global.front(), &output_component->second.ptr_outputs);
 
     // make room for active list
-    auto &last_component = dnnComponentsForLayer.back().second;
-    gnamem->reserve_ptr(nullptr, ALIGN64(last_component.num_bytes_per_output * last_component.num_rows_out));
+    gnamem->reserve_ptr(nullptr, ALIGN64(output_component->second.num_bytes_per_output * output_component->second.num_rows_out));
 
     void *pParallelExecutionData  = nullptr;
 
@@ -1780,10 +1795,19 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         }
     }
 
-    orientation_out = dnn.component[dnn.num_components()-1].orientation_out;
-    num_bytes_per_output = dnn.component[dnn.num_components()-1].num_bytes_per_output;
+    orientation_out = output_component->second.orientation_out;
+    num_bytes_per_output = output_component->second.num_bytes_per_output;
 
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(sortedNoMem.back());
+    // find output layer
+    auto output = std::find_if(sortedNet.begin(),
+                                sortedNet.end(),
+                                [&](const CNNLayerPtr& v)
+                                { return outputsDataMap.begin()->first == v.get()->name; });
+    if (output == sortedNet.end()) {
+        // likely layer is fused. Take last one
+        output = std::prev(sortedNet.end());
+    }
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(*output);
     output_scale_factor = quantized != nullptr ? quantized->_dst_quant.scale : 1.0f;
 
     num_rotate_rows = dnn.num_rotate_rows;
@@ -1958,6 +1982,18 @@ void GNAPlugin::Wait(uint32_t idx) {
 //                           dims[0],
 //                           dims[dims.size() - 1]);
 //        }
+        // we concider the last layer as output ...
+        size_t output_layer_index = std::max(0, static_cast<int>(std::get<0>(nnets[idx])->obj.nLayers - 1));
+        if (gnadevice && std::get<0>(nnets[idx])->obj.pLayers[output_layer_index].pOutputs != ptr_outputs_global[idx]) {
+            // ...as this is not true, we should look for output layer index
+            for (int j = 0; j != std::get<0>(nnets[idx])->obj.nLayers; j++) {
+                if (std::get<0>(nnets[idx])->obj.pLayers[j].pOutputs == ptr_outputs_global[idx]) {
+                    output_layer_index = j;
+                    break;
+                }
+            }
+        }
+
         ExportScores(output.buffer(),
                      ptr_outputs_global[idx],
                      orientation_out,
@@ -1967,7 +2003,7 @@ void GNAPlugin::Wait(uint32_t idx) {
                      output.dims()[0],
                      output.dims()[0],
                      // TODO: create better getter consider multiple outputs case
-                     gnadevice ? std::get<0>(nnets[idx])->obj.pLayers[std::get<0>(nnets[idx])->obj.nLayers - 1].nBytesPerOutput : sizeof(float),
+                     gnadevice ? std::get<0>(nnets[idx])->obj.pLayers[output_layer_index].nBytesPerOutput : sizeof(float),
                      sizeof(float));
     } else if (output.layout() != Layout::CN) {
         THROW_GNA_EXCEPTION << "Expected output blob to have Layout::NC or Layout::CN. But was " << output.layout();
