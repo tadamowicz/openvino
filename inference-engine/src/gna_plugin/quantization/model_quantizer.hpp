@@ -15,8 +15,6 @@
 //
 
 #pragma once
-
-#pragma once
 #include <vector>
 #include "gna_plugin_config.hpp"
 #include "layer_transform.hpp"

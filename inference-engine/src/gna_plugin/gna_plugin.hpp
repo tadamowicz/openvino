@@ -21,6 +21,7 @@
 #include "gna_memory.hpp"
 #include "gna_device.hpp"
 #include <map>
+#include <unordered_map>
 #include <list>
 #include <string>
 #include <utility>
@@ -61,9 +62,16 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      */
     std::vector<std::tuple<dnn_ptr, int32_t, InferenceEngine::BlobMap>> nnets;
 
-    intel_dnn_orientation_t orientation_in = kDnnUnknownOrientation;
+    std::unordered_map<std::string, intel_dnn_orientation_t> orientation_in;
     intel_dnn_orientation_t orientation_out = kDnnUnknownOrientation;
-    double input_scale_factor = 1.0;
+
+    /**
+     * temporary solution to support multiple scale factors
+     * @return
+     */
+    float get_input_scale_factor() const;
+    std::unordered_map<std::string, double> input_scale_factor;
+
     double output_scale_factor = 1.0;
     uint32_t num_rotate_rows = 0;
     uint32_t num_rotate_columns = 0;
@@ -72,11 +80,13 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t num_feature_maps = 1;
     uint32_t num_memory_bytes;
 
-    std::vector<void *> ptr_inputs_global;
+    std::unordered_map<std::string, std::list<std::vector<void *>>::iterator> ptr_inputs_global_id;
+    std::list<std::vector<void *>> ptr_inputs_global_storage;
+
+    std::vector<void *>& get_ptr_inputs_global(std::string name);
+
     std::vector<void *> ptr_outputs_global;
 
-    int16_t *ptr_int_inputs = NULL;
-    int32_t *ptr_int_outputs = NULL;
     uint32_t *ptr_active_indices = NULL;
     uint32_t num_active_indices = 0;
     uint32_t num_group_in = 0;
@@ -93,7 +103,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     InferenceEngine::Precision gnaPrecision = InferenceEngine::Precision::I16;
 
     bool performance_counting = false;
-    int  bytes_alllocated_for_input = 0;
+
     intel_dnn_number_type_t output_type = kDnnInt;
     std::string utterance_name;
 
@@ -155,7 +165,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t QueueInference(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result);
     void Wait(uint32_t idx = 0);
 
-    uint32_t QueueInference(const InferenceEngine::Blob &input, InferenceEngine::BlobMap &result);
     /**
      *
      * @param sync - points to gna sync point
@@ -175,7 +184,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     /**
      * utility to provide input and output blobs externally to be used by InferenceEngine request API clients
      */
-    InferenceEngine::Blob::Ptr GetInputBlob(InferenceEngine::Precision precision);
+    InferenceEngine::Blob::Ptr GetInputBlob(std::string name, InferenceEngine::Precision precision);
     InferenceEngine::Blob::Ptr GetOutputBlob(InferenceEngine::Precision precision);
     /**
      * helpers to provide inputs info on AOT network
@@ -330,16 +339,16 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         void *gna_ptr = nullptr;
     };
     using MemoryConnection = std::list<std::pair<std::string, GNAMemoryLayer>>;
-    using ConcatConnection = std::map<std::string, GNAConcatLayer>;
-    using SplitConnection  = std::map<std::string, GNASplitLayer>;
-    using CropConnection  = std::map<std::string, GNACropLayer>;
+    using ConcatConnection = std::unordered_map<std::string, GNAConcatLayer>;
+    using SplitConnection  = std::unordered_map<std::string, GNASplitLayer>;
+    using CropConnection  = std::unordered_map<std::string, GNACropLayer>;
     // layers with extra storage for connections and additional
     // non trivial processing
     MemoryConnection memory_connection;
     ConcatConnection concat_connection;
     SplitConnection  split_connection;
     CropConnection   crop_connection;
-    void fillMemoryConnections(std::map<std::string,
+    void fillMemoryConnections(std::unordered_map<std::string,
                                  std::vector<InferenceEngine::CNNLayerPtr>> &memoryPairs);
 
     void fillConcatConnections(InferenceEngine::CNNLayerPtr layer);
@@ -399,7 +408,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     ConnectionDetails connectInput(InferenceEngine::CNNLayerPtr layer,
                       void *pVoid,
                       size_t num_data_bytes_in,
-                      size_t offset = 0,
+                      int32_t offset = 0,
                       int idx = 0);
 
     void ImportFrames(void *ptr_dst,
@@ -490,8 +499,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
 
     intel_dnn_component_t * find_first_unused_input(InferenceEngine::CNNLayerPtr current);
-
-    InferenceEngine::SizeVector inputDims;
+    std::map<std::string, int> bytes_alllocated_for_input;
     InferenceEngine::InputsDataMap inputsDataMap;
 
     InferenceEngine::SizeVector outputDims;

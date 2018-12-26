@@ -2194,10 +2194,10 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                 pLayer++;
                 break;
             case kDnnCopyOp:
-                pLayer->nInputRows = component[i].num_rows_in;
-                pLayer->nInputColumns = component[i].num_columns_in;
-                pLayer->nOutputRows = component[i].num_rows_out;
-                pLayer->nOutputColumns = component[i].num_columns_out;
+                pLayer->nInputRows = component[i].num_columns_in;
+                pLayer->nInputColumns = component[i].num_rows_in;
+                pLayer->nOutputRows = component[i].num_columns_out;
+                pLayer->nOutputColumns = component[i].num_rows_out;
                 pLayer->nBytesPerInput = component[i].num_bytes_per_input;
                 pLayer->nBytesPerOutput = component[i].num_bytes_per_output;
                 pLayer->nBytesPerIntermediateOutput = sizeof(int32_t);
@@ -2212,8 +2212,8 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                         THROW_GNA_EXCEPTION << pLayer->nLayerKind << " could not allocate memory for INTEL_COPY layer structure.";
                     }
                     auto *pCopyLayer = reinterpret_cast<intel_copy_layer_t *>(pLayer->pLayerStruct);
-                    pCopyLayer->nCopyRows = component[i].op.copy.num_copy_rows;
-                    pCopyLayer->nCopyCols = component[i].op.copy.num_copy_columns;
+                    pCopyLayer->nCopyRows = component[i].op.copy.num_copy_columns;
+                    pCopyLayer->nCopyCols = component[i].op.copy.num_copy_rows;
                 }
                 pLayer++;
                 break;

@@ -44,7 +44,10 @@ class GNAInferRequest : public InferenceEngine::AsyncInferRequestInternal {
 
         // copy inputs blobs since we need to have them in separate address space to allow simultaneous infer requests
         _outputs[_networkOutputs.begin()->first] = plg->GetOutputBlob(networkOutputs.begin()->second->getPrecision());
-        _inputs[_networkInputs.begin()->first] = plg->GetInputBlob(networkInputs.begin()->second->getInputPrecision());
+        for (auto input : _networkInputs) {
+            _inputs[input.first] =
+                plg->GetInputBlob(input.first, networkInputs.begin()->second->getInputPrecision());
+        }
     }
     /**
      * @brief Infers specified input(s) in synchronous mode

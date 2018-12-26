@@ -183,7 +183,7 @@ class LayerInfo {
     bool isCropAffined() const noexcept {
         auto cropLayer = dynamic_cast<InferenceEngine::CropLayer *> (layer);
         size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
-        return (ALIGN(cropOffset, 8) != cropOffset);
+        return (ALIGN64(cropOffset) != cropOffset);
     }
     bool isCopy() const noexcept {
         IS_VALID();
