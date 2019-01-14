@@ -201,6 +201,10 @@ void GNAPlugin::copyInputDataWithSplit(T *const dst,
     for (auto&& outputLayer : splitInfo.splitOutputLayers) {
         uint32_t begin = outputLayer.offset/precision_size;
         uint32_t end = (outputLayer.offset + outputLayer.pure_size)/precision_size;
+        if (dst_ptr - dst >= end) {
+            // output layer with bind pointer as previous one. Skip
+            continue;
+        }
         for (uint32_t i = begin; i < end; ++i) {
             if (!std::is_same<T, U>::value) {
                 *(dst_ptr++) = GNAPluginNS::ConvertFloatToInt16(*(src_ptr++) * get_input_scale_factor());
