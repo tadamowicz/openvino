@@ -339,7 +339,7 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
                                                     static_cast<uint64_t>(std::numeric_limits<int32_t>::max()-1) * _scale_change_req_threshold) {
             gnawarn() << "Output scale for " << wl->name
                                             << " too large and are being reduced. Else saturations likely will happen \n";
-            // reduce weight scale according experimentatl heuruistic
+            // reduce weight scale according experimental heuristic
             if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_100) {
                 quant->_weights_quant.scale *= _scale_reduction_50;
                 tmp_dst_quant_scale *= _scale_reduction_50;

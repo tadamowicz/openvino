@@ -14,10 +14,6 @@
 #include <limits>
 #include "ie_memcpy.h"
 
-#ifdef PLOT
-void ExportGnaNetworkAndrzej(const char *ptr_name, intel_nnet_type_t* pNeuralNetwork);
-#endif
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <iostream>
@@ -52,6 +48,9 @@ void ExportGnaNetworkAndrzej(const char *ptr_name, intel_nnet_type_t* pNeuralNet
 #include "gna_model_serial.hpp"
 #include "gna_memory_state.hpp"
 #include "details/ie_cnn_network_tools.h"
+#include "gna_pass_manager.hpp"
+#include "gna_fused_iterator.hpp"
+
 
 using namespace InferenceEngine;
 using namespace std;
@@ -515,7 +514,7 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
         dnn.num_rotate_columns = num_feature_map_rows;
     }
 
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
 
     // rotate
     auto TransposeMatrix = [](uint8_t *ptr_matrix, size_t element_size, uint32_t num_rows, uint32_t num_cols) {
@@ -617,7 +616,7 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
     size_t num_data_bytes_in = InferenceEngine::details::product(begin(input->dims), end(input->dims))
         * input->precision.size();
 
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
 
     if (power.scale != 1.0f) {
@@ -696,7 +695,7 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->precision.size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
 }
 
 void GNAPlugin::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
@@ -737,7 +736,7 @@ void GNAPlugin::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
     size_t num_data_bytes_in = num_columns_in * ALIGN(num_rows_in, 8) * inputs->precision.size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
 }
 
 void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
@@ -762,8 +761,7 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto& concatLayerInfo = concat_connection.find(concatLayer->name)->second;
     for (auto &&outLayer : concatLayer->outData.front()->getInputTo()) {
         if ( LayerInfo(outLayer.second).isConcat() ) {
-            connectOutput(layer, &concatLayerInfo.gna_ptr,
-                          &concatLayerInfo.gna_ptr, concatLayerInfo.reserved_size);
+            connectOutput(layer, &concatLayerInfo.gna_ptr, concatLayerInfo.reserved_size);
         }
     }
 
@@ -813,7 +811,7 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         for (auto &&outLayer : layer->outData.front()->getInputTo()) {
             auto& nextLayer = outLayer.second;
             if ( LayerInfo(nextLayer).isConcat() ) {
-                connectOutput(layer, &cropLayerInfo->second.gna_ptr, &cropLayerInfo->second.gna_ptr, cropOutputSize);
+                connectOutput(layer, &cropLayerInfo->second.gna_ptr, cropOutputSize);
             }
         }
     } else {
@@ -857,7 +855,7 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
                 ALIGN(num_rows_in, 8) * inputs->precision.size();
 
         connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
-        connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+        connectOutput(layer, ptr_outputs, num_data_bytes_out);
 
         FillWeightOfAligningFilter(layer, ptr_weights, cropLayer->offset.back(), (quantized == nullptr) ? false : true);
 
@@ -941,7 +939,7 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     size_t num_data_bytes_in =
         num_columns_in * (num_rows_in + num_padding) * inputs2Bytes->precision.size();
 
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 1 - biasesLayerIdx);
 
     switch (eltwise._operation) {
@@ -980,6 +978,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
 
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
+    auto inputPrecision = quantized ? Precision(Precision::I16) : inputs->precision;
 
     uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
     uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
@@ -991,8 +990,20 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     void *ptr_weights;
     void *ptr_biases;
 
-    // TODO: questionable why for biases that are no in IR we inventing precision
+    // TODO: questionable why for biases that are no in Model we inventing precision
     auto biasPrecision = weightable._biases ? weightable._biases->precision() : outputs->precision;
+
+    // layer without biases might be connected to functional layer without activations
+    auto prevLayer = CNNNetPrevLayer(layer);
+    bool useBiasConnection = false;
+    if (LayerInfo(prevLayer).has32BOutput()) {
+        if (weightable._biases) {
+            THROW_GNA_EXCEPTION << "Layer: "
+                                << layer->name << ", cannot be connected to its parent: " << prevLayer->name
+                                << "due to precision mismatch";
+        }
+        useBiasConnection = true;
+    }
 
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
@@ -1005,7 +1016,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                             num_rows_in + num_padding,
                             num_columns_in,
                             num_rows_out,
-                            inputs->precision.size(),
+                            inputPrecision.size(),
                             outputs->precision.size(),
                             weightable._weights->precision().size(),
                             biasPrecision.size(),
@@ -1022,8 +1033,8 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
 
     size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->precision.size();
 
-    auto connectionInfo = connectInput(layer, ptr_inputs, num_data_bytes_in);
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    auto connectionInfo = connectInput(layer, useBiasConnection ? ptr_biases : ptr_inputs, num_data_bytes_in);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
 
     auto transpose = false;
     auto transposedRows = 0;
@@ -1098,7 +1109,12 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                          weightable._biases->byteSize(),
                          64);
     } else {
-        gnamem->readonly().push_value(ptr_biases, 0.0f, num_rows_out, 64);
+        // in that case input from previous layer goes into biases, so we have to initialize input pointer by zero
+        if (useBiasConnection) {
+            gnamem->readonly().push_value(ptr_inputs, 0.0f, num_rows_in, 64);
+        } else {
+            gnamem->readonly().push_value(ptr_biases, 0.0f, num_rows_out, 64);
+        }
     }
 }
 
@@ -1187,7 +1203,7 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             ALIGN(num_rows_in, 8) * inputs->precision.size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
 
     if (num_padding == 0) {
         gnamem->readonly().push_ptr(ptr_weights,
@@ -1356,7 +1372,7 @@ case name:\
 #endif
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
-    connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
+    connectOutput(layer, ptr_outputs, num_data_bytes_out);
 
     if (ptr_pwl_segments_target != nullptr) {
         gnamem->readonly().push_local_ptr(ptr_pwl_segments_target,
@@ -1532,26 +1548,29 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     // network optimisation phases
     auto run_passes = [&] (CNNNetPtr network) {
+        PassManager passes(policy);
         auto layers = CNNNetSortTopologically(*network.get());
-        substitutePRelu(layers);
+        passes.substitutePRelu(layers);
         layers = CNNNetSortTopologically(*network.get());
-        reorderMaxPool(layers);
+        passes.reorderMaxPool(layers);
         //  ToDo sort if bool flag "changed"
         //  returned from insertion function
-        insertAligningFilterLayer(layers);
+        passes.insertAligningFilterLayer(layers);
 
 #if ENABLE_AUTO_PERMUTE
         layers = CNNNetSortTopologically(*network.get());
-        reversePermutations(layers);
+        passes.reversePermutations(layers);
 #endif
         layers = CNNNetSortTopologically(*network.get());
-        insertIdentityLayer(layers);
+        passes.insertIdentityLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
-        insertCopyLayer(layers);
+        passes.insertCopyLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
-        insertDiagonalLayer(layers);
+        passes.insertDiagonalLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
-        substituteScaleShiftBroadCast(layers);
+        passes.handleMultipleActivationsForTheLayer(layers);
+        layers = CNNNetSortTopologically(*network.get());
+        passes.substituteScaleShiftBroadCast(layers);
     };
 
     Config supported = Config({
@@ -1590,10 +1609,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     supported.setDefaultDevice(TargetDevice::eGNA);
     auto newNet = supported.find_configuration(network).convert(network);
 
-
-
-    // creating intel dnn_t structures from network
-    auto sortedNet = CNNNetSortTopologically(*newNet);
+    auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
     std::vector<CNNLayerPtr> sortedNoMem;
     std::unordered_map<std::string, std::vector<InferenceEngine::CNNLayerPtr>> memoryPairs;
     // find all memory layers pairs and mark which one used as outputs
@@ -1819,7 +1835,6 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
 #ifdef PLOT
     dnn.WriteGraphWizModel("graph.dot");
-    // ExportGnaNetworkAndrzej("layers/loaded_from_ir", &nnet->obj);
 #endif
 }
 void GNAPlugin::DumpXNNToFile() const {
@@ -2455,7 +2470,7 @@ intel_dnn_component_t * GNAPlugin::find_first_unused_input(InferenceEngine::CNNL
 
     return findDnnLayer(prev_layer);
 }
-void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, void *ptr_inputs, size_t num_data_bytes_out) {
+void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, size_t num_data_bytes_out) {
     gnalog() << "Connecting output " << layer->name << " ...\n";
     // in case of Memory Layer it's input allocated in meminput layer
     if (layer->outData.size() == 1) {

@@ -10,24 +10,32 @@
 #include <algorithm>
 #include <list>
 #include <unordered_set>
+#include <set>
 
 #include <quantization/quantized_layer_params.hpp>
-#include "gna_plugin.hpp"
+#include <graph_tools.hpp>
+#include <gna-api.h>
+#include <blob_factory.hpp>
+#include <ie_memcpy.h>
+#include <ie_algorithm.hpp>
+#include "gna_pass_manager.hpp"
 #include "gna_layer_info.hpp"
+#include "gna_plugin_log.hpp"
 
 using namespace InferenceEngine;
 using namespace InferenceEngine::details;
 using namespace GNAPluginNS;
 
-void GNAPlugin::insertDiagonalLayer(std::vector<CNNLayerPtr> & layers) {
+void PassManager::insertDiagonalLayer(std::vector<CNNLayerPtr> & layers) {
     int numOfDiagLayers = 0;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
         if (l->insData.empty()) continue;
         auto prevLayer = CNNNetPrevLayer(l);
         if (LayerInfo(l).isActivation()) {
-            if (LayerInfo(prevLayer).has32BOutput())
+            if (LayerInfo(prevLayer).has32BOutput()) {
                 continue;
+            }
         } else {
             auto eltwise = dynamic_cast<InferenceEngine::EltwiseLayer *>(l.get());
             if (!eltwise) {
@@ -49,37 +57,69 @@ void GNAPlugin::insertDiagonalLayer(std::vector<CNNLayerPtr> & layers) {
             if (!LayerInfo(prevLayer).has16BOutput() || !LayerInfo(prevLayer1).has16BOutput())
                 continue;
         }
-
-#ifdef PLOT
-        std::cout << "Inserted Diagonal Layer between: " << prevLayer->name << " and " << l->name << "\n" << std::flush;
-#endif
-        // actual insertion
-        auto diagName = std::string("SyntheticScaleShift_") + std::to_string(numOfDiagLayers++);
-        auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
-
-        // TODO: diagonal size
-        std::vector<float> arrayOf1(l->outData[0]->dims[0], 1.f);
-        diagLayer->_weights = make_shared_blob<float>(l->outData[0]->precision, Layout::C, arrayOf1);
-        auto newDims = l->outData[0]->dims;
-        auto dataPtr = std::make_shared<Data>(diagName,
-                                              newDims,
-                                              l->outData[0]->precision,
-                                              l->outData[0]->layout);
-
-        auto diagonalWithQuant = quantized ?
-                            InferenceEngine::injectData<QuantizedLayerParams>(diagLayer) :
-                                                                                    diagLayer;
-
-        dataPtr->creatorLayer = diagonalWithQuant;
-        diagonalWithQuant->outData.push_back(dataPtr);
-        CNNNetworkInsertLayer(prevLayer, l, diagonalWithQuant);
+        insertDiagonalLayerBetween(prevLayer, l, 1.f);
     }
 }
 
-void GNAPlugin::reorderMaxPool(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+void PassManager::insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
+                                           InferenceEngine::CNNLayerPtr nextLayer,
+                                           float fillValue) {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(prevLayer);
+#ifdef PLOT
+    std::cout << "Inserted Diagonal Layer between: " << prevLayer->name << " and " << nextLayer->name << "\n" << std::flush;
+#endif
+    // actual insertion
+    auto diagName = std::string("SyntheticScaleShift_") + std::to_string(syntheticDiagonalLayersNum++);
+    auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
+
+    // TODO: diagonal size
+    std::vector<float> weightsValues(nextLayer->outData[0]->dims[0], fillValue);
+    diagLayer->_weights = make_shared_blob<float>(nextLayer->outData[0]->precision, Layout::C, weightsValues);
+    auto newDims = nextLayer->outData[0]->dims;
+    auto dataPtr = std::make_shared<Data>(diagName,
+                                          newDims,
+                                          nextLayer->outData[0]->precision,
+                                          nextLayer->outData[0]->layout);
+
+    auto diagonalWithQuant = quantized ?
+                             InferenceEngine::injectData<QuantizedLayerParams>(diagLayer) : diagLayer;
+
+    dataPtr->creatorLayer = diagonalWithQuant;
+    diagonalWithQuant->outData.push_back(dataPtr);
+    CNNNetworkInsertLayer(prevLayer, nextLayer, diagonalWithQuant);
+}
+
+void PassManager::handleMultipleActivationsForTheLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+    // found layer followed by with multiple activations
+    for (auto & l : layers) {
+        std::set<CNNLayerPtr> activations;
+        std::set<CNNLayerPtr> identities;
+
+        for (auto && odata : l->outData) {
+            for (auto && inputTo : odata->getInputTo()) {
+                LayerInfo info(inputTo.second);
+
+                if (info.isIdentity()) {
+                    identities.insert(inputTo.second);
+                } else if (info.isActivation()) {
+                    activations.insert(inputTo.second);
+                }
+            }
+        }
+        // single or not activations case
+        if (activations.size() + identities.size() < 2) continue;
+
+        // insert diagonals, but not for identity activations
+        for (auto && activation : activations) {
+            insertDiagonalLayerBetween(l, activation, 0.0f);
+        }
+    }
+}
+
+void PassManager::reorderMaxPool(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
     // detecting following pattern
     // conv->relu->maxpooling
-    // changing it to conv->mxpooling->relu
+    // changing it to conv->maxpooling->relu
     for (auto & l : layers) {
         auto pool = LayerInfo(l);
         if (!pool.isMaxPooling()) continue;
@@ -98,7 +138,7 @@ void GNAPlugin::reorderMaxPool(std::vector<InferenceEngine::CNNLayerPtr> & layer
     }
 }
 
-std::vector<CNNLayerPtr> GNAPlugin::getCandidatesForIdentityInsertion(const CNNLayerPtr l) {
+std::vector<CNNLayerPtr> PassManager::getCandidatesForIdentityInsertion(const CNNLayerPtr l) {
     std::vector<CNNLayerPtr> prevLayers;
 
     // skipping memory inputs and true inputs layers
@@ -125,7 +165,7 @@ std::vector<CNNLayerPtr> GNAPlugin::getCandidatesForIdentityInsertion(const CNNL
                 if (!LayerInfo(prev0).has32BOutput() || !LayerInfo(prev1).has32BOutput()) {
                     return prevLayers;
                 }
-                // TODO: wether there - are possibility to select what layer to quantize
+                // TODO: whether there are possibility to select after what layer identity gets inserted
                 prevLayers.push_back(prev0);
                 break;
             case EltwiseLayer::Prod:
@@ -152,7 +192,8 @@ std::vector<CNNLayerPtr> GNAPlugin::getCandidatesForIdentityInsertion(const CNNL
                 prevLayers.push_back(prev);
             }
         }
-    } else {  // not eltwise or concat
+    } else {
+        // not eltwise or concat
         // other layers has 1 inputs - situation is easier
         // ex. activation or pooling - no need to insert identity activation.
         if (LayerInfo(l).has32BInput())
@@ -167,7 +208,7 @@ std::vector<CNNLayerPtr> GNAPlugin::getCandidatesForIdentityInsertion(const CNNL
     return prevLayers;
 }
 
-void GNAPlugin::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
+void PassManager::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
     auto getScale = [](CNNLayer* layer) {
         auto powerCandidate = LayerInfo(layer);
         if (!powerCandidate.isPower()) return 0.0f;
@@ -260,7 +301,7 @@ void GNAPlugin::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layer
     }
 }
 
-void GNAPlugin::reversePermutations(std::vector<CNNLayerPtr> &layers) {
+void PassManager::reversePermutations(std::vector<CNNLayerPtr> &layers) {
     std::function<CNNLayerPtr(CNNLayerPtr, std::function<bool(CNNLayerPtr)>)> prevLayerSkipCertain
         = [&prevLayerSkipCertain](CNNLayerPtr layer, std::function<bool(CNNLayerPtr)> shouldSkip) -> CNNLayerPtr {
         if (CNNNetHasPrevLayer(layer.get())) {
@@ -359,7 +400,7 @@ void GNAPlugin::reversePermutations(std::vector<CNNLayerPtr> &layers) {
     }
 }
 
-void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
+void PassManager::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
     int numOfIdentityLayers = 0;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
@@ -401,7 +442,7 @@ void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
     }
 }
 
-void GNAPlugin::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+void PassManager::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
     int numCopyLayers = 0;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
@@ -444,7 +485,7 @@ void GNAPlugin::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & laye
     }
 }
 
-void GNAPlugin::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+void PassManager::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
     // currently split layer only supports 2 bytes in int16 and int8 mode. In fp32 mode this no necessary but usefull for testing
     const int bytesPerSplitElement = 2;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
@@ -523,7 +564,7 @@ void GNAPlugin::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerP
     }
 }
 
-void GNAPlugin::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
+void PassManager::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
         LayerInfo layerInfo(l);
@@ -544,7 +585,7 @@ void GNAPlugin::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLa
             continue;
         }
         auto batchSize = insData->getDims()[0];
-        auto nElements = details::product(insData->getDims()) / batchSize;
+        auto nElements = product(begin(insData->getDims()), end(insData->getDims())) / batchSize;
         auto weightsElements = scaleShift->_weights->size();
         auto weightsBytes = scaleShift->_weights->byteSize();
 

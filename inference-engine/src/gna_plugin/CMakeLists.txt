@@ -37,7 +37,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE inference_engine ${INTEL_ITT_LIBS} 
 
 set(TEST_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/gna_plugin.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/gna_plugin_passes.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/gna_pass_manager.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/quantization/quantization.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/dnn.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/gna_device.cpp"

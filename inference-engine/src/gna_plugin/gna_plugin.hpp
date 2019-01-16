@@ -395,7 +395,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      * @param sz - sizeof output blob
      * @param ptr_inputs - sizeof output blob
      */
-    void connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr_outputs, void *ptr_inputs, size_t sz);
+    void connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr_outputs, size_t sz);
     /**
      * Connects certain input to this layer
      * @param layer - layer that we connect input to
@@ -473,58 +473,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                     const GNASplitLayer& splitInfo,
                     size_t precision_size,
                     int idx = 0);
-    /**
-     * @brief GNA affine layers are always have activation atached, while IR not
-     */
-    void insertIdentityLayer(std::vector<InferenceEngine::CNNLayerPtr> &layers);
 
-    /**
-     * @brief GNA cannot support broadcast - so we will tile weights and biases for scaleshift layer
-     */
-    void substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLayerPtr> &layers);
-
-
-    /**
-     * @brief GNA convolution layers have deinterleaved layout, while affine one doesn't
-     * so between convolution and affine layers permute layers need to be inserted,
-     * current MO approach is to insert such permutations
-     * since GNA-HW already support conv->affine in permuted for, this pass inverses MO behavior
-     * so its remove permutations of certain form conv->conv, and between conv->affine
-     * and insert permutation between conv->affine if they are missed in IR
-     * @param layers
-     */
-    void reversePermutations(std::vector<InferenceEngine::CNNLayerPtr> &layers);
-
-
-    /**
-     * brief @search for specific patter in the graph (6 layers are replaced by single one)
-     * @param layers
-     */
-    void substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layers);
-
-    std::vector<InferenceEngine::CNNLayerPtr> getCandidatesForIdentityInsertion(const InferenceEngine::CNNLayerPtr layer);
-
-    /**
-     * diagonal layer insertion required in cases where activation followed by split layers, or any other
-     * topology changing layers
-     */
-    void insertDiagonalLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
-
-    /**
-     * @brief MaxPool can be reordered with activation, on GNA there is a strategy to have conv->maxpool->activation
-     * it means maxpool receives 4 bytes, and produces 4 bytes
-     */
-    void reorderMaxPool(std::vector<InferenceEngine::CNNLayerPtr> & layers);
-
-    /**
-     * copy layer insertion required in cases where input layer does not have output memory
-     */
-    void insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
-
-    /**
-     * aligned filter layer insertion required in cases when split/slice have output connections on not aligned addresses
-     */
-    void insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
 
     intel_dnn_component_t * find_first_unused_input(InferenceEngine::CNNLayerPtr current);
     std::map<std::string, int> bytes_alllocated_for_input;
