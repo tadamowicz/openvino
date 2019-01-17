@@ -158,10 +158,10 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      * @deprecated Use the version with config parameter
      */
     void QueryNetwork(const InferenceEngine::ICNNNetwork &network,
-                      InferenceEngine::QueryNetworkResult &res) const override { }
+                      InferenceEngine::QueryNetworkResult &res) const override;
     void QueryNetwork(const InferenceEngine::ICNNNetwork &network,
                       const std::map<std::string, std::string>& config,
-                      InferenceEngine::QueryNetworkResult &res) const override { }
+                      InferenceEngine::QueryNetworkResult &res) const override;
     uint32_t QueueInference(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result);
     void Wait(uint32_t idx = 0);
 
@@ -219,7 +219,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void PWLPrimitive(InferenceEngine::CNNLayerPtr);
     void CopyPrimitive(InferenceEngine::CNNLayerPtr);
     bool AreLayersSupported(InferenceEngine::ICNNNetwork& network, std::string& errMessage);
-    LayerType LayerTypeFromStr(std::string const &str);
+    LayerType LayerTypeFromStr(std::string const &str) const;
     /**
      * maps tpe of connection to input and output layers also stores gna_pointer for alloc request
      */
