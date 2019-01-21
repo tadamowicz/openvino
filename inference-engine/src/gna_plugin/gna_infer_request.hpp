@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -31,15 +31,8 @@ class GNAInferRequest : public InferenceEngine::AsyncInferRequestInternal {
         }
 
         // copy inputs blobs since we need to have them in separate address space to allow simultaneous infer requests
-        for (auto output : _networkOutputs) {
-            _outputs[output.first] =
-                plg->GetOutputBlob(output.first, output.second->getTensorDesc().getPrecision());
-        }
-
-        for (auto input : _networkInputs) {
-            _inputs[input.first] =
-                plg->GetInputBlob(input.first, input.second->getTensorDesc().getPrecision());
-        }
+        _outputs[_networkOutputs.begin()->first] = plg->GetOutputBlob(networkOutputs.begin()->second->getPrecision());
+        _inputs[_networkInputs.begin()->first] = plg->GetInputBlob(networkInputs.begin()->second->getInputPrecision());
     }
     /**
      * @brief Infers specified input(s) in synchronous mode
@@ -72,12 +65,7 @@ class GNAInferRequest : public InferenceEngine::AsyncInferRequestInternal {
     }
 
     InferenceEngine::StatusCode Wait(int64_t millis_timeout) override {
-        if (inferRequestIdx == -1) {
-            return InferenceEngine::INFER_NOT_STARTED;
-        } else if (millis_timeout < -1) {
-            THROW_IE_EXCEPTION << PARAMETER_MISMATCH_str;
-        }
-
+        if (inferRequestIdx == -1) return InferenceEngine::INFER_NOT_STARTED;
         plg->Wait(inferRequestIdx);
         return InferenceEngine::OK;
     }
