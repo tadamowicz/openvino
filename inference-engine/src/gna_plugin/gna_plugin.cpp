@@ -201,6 +201,10 @@ void GNAPlugin::copyInputDataWithSplit(T *const dst,
     for (auto&& outputLayer : splitInfo.splitOutputLayers) {
         uint32_t begin = outputLayer.offset/precision_size;
         uint32_t end = (outputLayer.offset + outputLayer.pure_size)/precision_size;
+        if (dst_ptr - dst >= end) {
+            // output layer with bind pointer as previous one. Skip
+            continue;
+        }
         for (uint32_t i = begin; i < end; ++i) {
             if (!std::is_same<T, U>::value) {
                 *(dst_ptr++) = GNAPluginNS::ConvertFloatToInt16(*(src_ptr++) * get_input_scale_factor());
@@ -1460,7 +1464,7 @@ GNAPlugin::GNAPlugin(const std::map<std::string, std::string>& configMap) {
     });
 }
 
-GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string &str) {
+GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string &str) const {
     static const caseless_map<std::string, GNAPlugin::LayerType> LayerNameToType = {
         { "Input" , Input },
         { "Convolution" , Convolution },
@@ -2219,6 +2223,41 @@ void GNAPlugin::GetPerformanceCounts(std::map<std::string, InferenceEngine::Infe
 
 void GNAPlugin::AddExtension(InferenceEngine::IExtensionPtr extension) {}
 void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {}
+
+/**
+ * @depricated Use the version with config parameter
+ */
+void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
+                             InferenceEngine::QueryNetworkResult& res) const {
+    QueryNetwork(network, {}, res);
+}
+
+void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
+                             const std::map<std::string, std::string>& config,
+                             InferenceEngine::QueryNetworkResult& res) const {
+    std::unordered_set<CNNLayer *> allLayers;
+    InferenceEngine::InputsDataMap inputs;
+
+    network.getInputsInfo(inputs);
+    std::vector<CNNLayerPtr> sortedLayers = CNNNetSortTopologically(network);
+
+    if (inputs.empty()) {
+        THROW_GNA_EXCEPTION << "Network is empty (GNA)\n";
+    }
+
+    auto const & secondLayers = inputs.begin()->second->getInputData()->getInputTo();
+    if (secondLayers.empty()) {
+        THROW_GNA_EXCEPTION << "Network consists of input layer only (GNA)\n";
+    }
+
+    InferenceEngine::details::UnorderedDFS(allLayers,
+                                           secondLayers.begin()->second,
+                                           [&](CNNLayerPtr const layer) {
+                                                if (GNAPluginNS::GNAPlugin::LayerTypeFromStr(layer->type) != NO_TYPE) {
+                                                    res.supportedLayers.insert(layer->name);
+                                                }
+                                            }, false);
+}
 
 intel_dnn_component_t * GNAPlugin::find_first_unused_input(InferenceEngine::CNNLayerPtr current) {
     if (current->insData.empty()) return nullptr;
