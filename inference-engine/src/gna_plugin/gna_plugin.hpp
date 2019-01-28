@@ -37,6 +37,8 @@
 #include "gna_allocator.hpp"
 #include "gna_api_wrapper.hpp"
 
+#define ENABLE_AUTO_PERMUTE 0
+
 namespace GNAPluginNS {
 
 void ConvertToInt16(int16_t *ptr_dst,
@@ -475,12 +477,15 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void insertIdentityLayer(std::vector<InferenceEngine::CNNLayerPtr> &layers);
 
     /**
-     * @brief GNA convolution layers have deinterleaved oriantations, while affine one doesn't
+     * @brief GNA convolution layers have deinterleaved layout, while affine one doesn't
      * so between convolution and affine layers permute layers need to be inserted,
-     * or removed if they are present in topology
+     * current MO approach is to insert such permutations
+     * since GNA-HW already support conv->affine in permuted for, this pass inverses MO behavior
+     * so its remove permutations of certain form conv->conv, and between conv->affine
+     * and insert permutation between conv->affine if they are missed in IR
      * @param layers
      */
-    void applyOrientations(std::vector<InferenceEngine::CNNLayerPtr> &layers);
+    void reversePermutations(std::vector<InferenceEngine::CNNLayerPtr> &layers);
 
 
     /**

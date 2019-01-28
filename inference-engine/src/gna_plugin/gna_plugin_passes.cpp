@@ -19,6 +19,8 @@
 #include <memory>
 #include <utility>
 #include <algorithm>
+#include <list>
+#include <unordered_set>
 
 #include <quantization/quantized_layer_params.hpp>
 #include "gna_plugin.hpp"
@@ -269,7 +271,103 @@ void GNAPlugin::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layer
     }
 }
 
-void GNAPlugin::applyOrientations(std::vector<CNNLayerPtr> & layers) {
+void GNAPlugin::reversePermutations(std::vector<CNNLayerPtr> &layers) {
+    std::function<CNNLayerPtr(CNNLayerPtr, std::function<bool(CNNLayerPtr)>)> prevLayerSkipCertain
+        = [&prevLayerSkipCertain](CNNLayerPtr layer, std::function<bool(CNNLayerPtr)> shouldSkip) -> CNNLayerPtr {
+        if (CNNNetHasPrevLayer(layer.get())) {
+            return nullptr;
+        }
+        auto prev = CNNNetPrevLayer(layer);
+
+        if (!shouldSkip(prev)) return prevLayerSkipCertain(prev, shouldSkip);
+
+        return prev;
+    };
+
+    auto prevLayerSkipReshape = [&prevLayerSkipCertain](CNNLayerPtr layer) -> CNNLayerPtr {
+        return prevLayerSkipCertain(layer, [] (CNNLayerPtr l2) {
+            return LayerInfo(l2).isReshape();
+        });
+    };
+
+
+    std::function<CNNLayerPtr(CNNLayerPtr)> nextLayerSkipReshape = [&nextLayerSkipReshape](CNNLayerPtr layer) -> CNNLayerPtr {
+        if (layer->outData.empty()) {
+            return nullptr;
+        }
+        if (layer->outData.front()->inputTo.size() != 1) {
+            return nullptr;
+        }
+        auto next = layer->outData.front()->inputTo.begin()->second;
+
+        if (LayerInfo(next).isReshape()) return nextLayerSkipReshape(next);
+
+        return next;
+    };
+
+    auto prevConv = [&prevLayerSkipCertain](CNNLayerPtr layer) -> CNNLayerPtr {
+        return prevLayerSkipCertain(layer, [] (CNNLayerPtr l2) {
+            return
+                LayerInfo(l2).isReshape() ||
+                LayerInfo(l2).isPooling() ||
+                LayerInfo(l2).isActivation();
+        });
+    };
+
+    std::unordered_set<std::string> affineWithPermutedWeights;
+    std::list<CNNLayerPtr> permutationstoRemove;
+
+    for (auto & l : layers) {
+        if (!LayerInfo(l).isPermute()) {
+            continue;
+        }
+
+        auto layerOrder = l->GetParamAsInts("order");
+
+        if (layerOrder != std::vector<int>({0, 3, 2, 1})) {
+            THROW_GNA_EXCEPTION << "Unsupported permute layer: " << l->name << ", order: was " << l->GetParamAsString("order") <<
+                               ", but support order is 0,3,2,1";
+        }
+
+        // search for it's input convolution
+        auto prev = prevConv(l);
+
+        // pooling no used in speech models without convolution
+        if (!prev) {
+            THROW_GNA_EXCEPTION << "Unsupported permute layer: " << l->name << " no valid input to that layer";
+        }
+
+        // we can remove that permutation if it is input to ScaleShift or FC layer
+        auto next = nextLayerSkipReshape(l);
+        if (!next || !LayerInfo(next).isFullyConnected()) {
+            THROW_GNA_EXCEPTION << "Unsupported permute layer: " << l->name << " no valid output of that layer";
+        }
+
+        permutationstoRemove.push_back(l);
+
+        // removing that permutation layer and saving information about affine
+        affineWithPermutedWeights.insert(next->name);
+    }
+
+    for (auto && toRemove : permutationstoRemove) {
+        CNNNetworkRemoveLayer(toRemove);
+    }
+
+    // search for conv->affine sequences
+    for (auto & l : layers) {
+        if (!LayerInfo(l).isFullyConnected() || 0 != affineWithPermutedWeights.count(l->name)) {
+            continue;
+        }
+        // found an affine layer that not involved in permutations removing
+        // searching whether it has direct input from convolution
+        auto prevConvLayer = prevConv(l);
+        if (!prevConvLayer) continue;
+
+        auto directPrev = CNNNetPrevLayer(l);
+
+        // TODO : make new permute
+        CNNNetworkInsertLayer(l, directPrev, CNNLayerPtr(nullptr));
+    }
 }
 
 void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
