@@ -206,6 +206,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void DumpXNNToFile() const;
     void CreateLayerPrimitive(InferenceEngine::CNNLayerPtr);
     void AffinePrimitive(InferenceEngine::CNNLayerPtr, bool isDiag = false);
+    void AffineFilterPrimitive(InferenceEngine::CNNLayerPtr);
     void DiagonalPrimitive(InferenceEngine::CNNLayerPtr);
     void ConvolutionPrimitive(InferenceEngine::CNNLayerPtr);
     void PermutePrimitive(InferenceEngine::CNNLayerPtr);
@@ -377,6 +378,15 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     std::unique_ptr<gna_memory_type> gnamem;
 
     /**
+     * Fill in the Affine layer weights
+     * @param layer - affine layer pointer
+     * @param ptrWeights - pointer to weights memory
+     * @param offset - memory before offset value will be zeroed
+     * @param isQuantized - information about layer quantization
+     */
+    void FillWeightOfAligningFilter(InferenceEngine::CNNLayerPtr layer, void* ptrWeights, size_t offset, bool isQuantized = false);
+
+    /**
      * Connects either memory output, or generic output to a layer
      * @param layer - layer pointer
      * @param ptr - pointer to pointer where to store  output layer information
@@ -497,6 +507,11 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      * copy layer insertion required in cases where input layer does not have output memory
      */
     void insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
+
+    /**
+     * aligned filter layer insertion required in cases when split/slice have output comnnections on not aligned addresses
+     */
+    void insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
 
     intel_dnn_component_t * find_first_unused_input(InferenceEngine::CNNLayerPtr current);
     std::map<std::string, int> bytes_alllocated_for_input;
