@@ -1719,7 +1719,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     // in fp32 mode last PWL cannot be computed without that
     dnn.InitActiveList(NULL);
 
-    nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(0), -1, InferenceEngine::BlobMap()));
+    nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
 
     if (!networkPrecision.is_float()) {
         // number of layer gets calculated inside that InitGNAStruct function
@@ -1728,7 +1728,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     // creating same gna RW segment for parallel infer requests
     for (int i = 1; i != gna_lib_async_threads_num; i++) {
-        nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(0), -1, InferenceEngine::BlobMap()));
+        nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
 
         // this can be improved by just copy all structures, but we are too lazy
         dnn.InitGNAStruct(&std::get<0>(nnets.back())->obj);

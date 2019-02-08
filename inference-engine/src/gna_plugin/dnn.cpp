@@ -1946,6 +1946,8 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
 
     if (ptr_nnet == nullptr)
         THROW_GNA_EXCEPTION << "Invalid input parameter";
+    if (ptr_nnet->pLayers != nullptr)
+        THROW_GNA_EXCEPTION << "InitGNAStruct can't work on prellocated layers array";
     if (component.empty())
         THROW_GNA_EXCEPTION << "empty model in AmIntelDnn::FillGNAStruct()";
 
