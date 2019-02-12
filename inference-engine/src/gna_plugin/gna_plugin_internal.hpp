@@ -32,7 +32,10 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
                                                 const std::map<std::string, std::string> &config) override {
         return std::make_shared<GNAExecutableNetwork>(network, config);
     }
-    void SetConfig(const std::map<std::string, std::string> &config) override {}
+    void SetConfig(const std::map<std::string, std::string> &config) override {
+        auto plg = std::make_shared<GNAPlugin>();
+        plg->SetConfig(config);
+    }
     InferenceEngine::IExecutableNetwork::Ptr  ImportNetwork(
                                                 const std::string &modelFileName,
                                                 const std::map<std::string, std::string> &config) override {
@@ -50,7 +53,10 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
     void QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                       const std::map<std::string, std::string>& config,
                       InferenceEngine::QueryNetworkResult& res) const override {
-        auto plg = std::make_shared<GNAPlugin>(config);
+        auto plg = std::make_shared<GNAPlugin>();
+        try {
+            plg->SetConfig(config);
+        } catch (InferenceEngine::details::InferenceEngineException& e) {}
         plg->QueryNetwork(network, config, res);
     }
 };

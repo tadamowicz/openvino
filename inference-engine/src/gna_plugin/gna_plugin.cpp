@@ -1334,134 +1334,7 @@ void GNAPlugin::CreateLayerPrimitive(CNNLayerPtr layer) {
 
 
 GNAPlugin::GNAPlugin(const std::map<std::string, std::string>& configMap) {
-    // holds actual value of a found key
-    std::string key;
-    std::string value;
-    auto if_set = [&](std::string keyInput, const std::function<void()> & handler) {
-        auto keyInMap = configMap.find(keyInput);
-        if (keyInMap != configMap.end()) {
-            value = keyInMap->second;
-            handler();
-        }
-    };
-
-    auto if_start = [&](std::string keyInput, const std::function<void()> & handler) {
-        for (auto && c : configMap) {
-            if (c.first.find(keyInput) == 0) {
-                if (c.first.size() > keyInput.size() + 1) {
-                    key = c.first.substr(keyInput.size() + 1);
-                    value = c.second;
-                    handler();
-                }
-            }
-        }
-    };
-
-    auto fp32eq = [](float p1, float p2) -> bool {
-        return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
-    };
-
-    if_start(GNA_CONFIG_KEY(SCALE_FACTOR), [&, this] {
-        // only identical scale factors supported so far
-        auto ref = input_scale_factor.size() ? input_scale_factor.begin()->second : 1.0;
-        input_scale_factor[key] = std::stod(value);
-        if (ref != 1.0 && !fp32eq(input_scale_factor[key], ref)) {
-            THROW_GNA_EXCEPTION << "only identical input scale factors supported, but provided: " << ref <<" and " << input_scale_factor[key];
-        }
-    });
-
-    if (input_scale_factor.empty()) {
-        if_set(GNA_CONFIG_KEY(SCALE_FACTOR), [&] {
-            input_scale_factor["placeHolder"] = std::stod(value);
-        });
-    }
-
-    if_set(GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE), [&] {
-        dumpXNNPath = value;
-    });
-
-    if_set(GNA_CONFIG_KEY(DEVICE_MODE), [&] {
-        static caseless_unordered_map <std::string, uint32_t> supported_values = {
-            {GNAConfigParams::GNA_AUTO, GNA_AUTO},
-            {GNAConfigParams::GNA_HW, GNA_HARDWARE},
-            {GNAConfigParams::GNA_SW, GNA_SOFTWARE},
-            {GNAConfigParams::GNA_SW_EXACT, GNA_SOFTWARE & GNA_HARDWARE}
-        };
-        auto procType = supported_values.find(value);
-        if (procType == supported_values.end()) {
-            THROW_GNA_EXCEPTION << "GNA device mode unsupported: " << value;
-        }
-        gna_proc_type = static_cast<intel_gna_proc_t>(procType->second);
-    });
-
-    if_set(GNA_CONFIG_KEY(COMPACT_MODE), [&] {
-        if (value == PluginConfigParams::YES) {
-            compact_mode = true;
-        } else if (value == PluginConfigParams::NO) {
-            compact_mode = false;
-        } else {
-            THROW_GNA_EXCEPTION << "GNA compact mode should be YES/NO, but not" << value;
-        }
-    });
-
-    if_set(CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS), [&] {
-        if (value == PluginConfigParams::YES) {
-            exclusive_async_requests  = true;
-        } else if (value == PluginConfigParams::NO) {
-            exclusive_async_requests  = false;
-        } else {
-            THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
-        }
-    });
-
-    if_set(GNA_CONFIG_KEY(PRECISION), [&] {
-        auto precision = Precision::FromStr(value);
-        if (precision != Precision::I8 && precision != Precision::I16) {
-            THROW_GNA_EXCEPTION << "Unsupported precision of GNA hardware, should be Int16 or Int8, but was: " << value;
-        }
-        gnaPrecision = precision;
-    });
-
-    if_set(GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN), [&] {
-        if (value == PluginConfigParams::YES) {
-            uniformPwlDesign = true;
-        } else if (value == PluginConfigParams::NO) {
-            uniformPwlDesign = false;
-        } else {
-            THROW_GNA_EXCEPTION << "GNA pwl uniform algorithm parameter "
-                                                            << "should be equal to YES/NO, but not" << value;
-        }
-    });
-
-    if_set(CONFIG_KEY(PERF_COUNT), [&] {
-        if (value == PluginConfigParams::YES) {
-            performance_counting = true;
-        } else if (value == PluginConfigParams::NO) {
-            performance_counting = false;
-        } else {
-            THROW_GNA_EXCEPTION << "GNA performance counter enabling parameter "
-                                                            << "should be equal to YES/NO, but not" << value;
-        }
-    });
-
-    if_set(GNA_CONFIG_KEY(LIB_N_THREADS), [&] {
-        uint64_t lib_threads = std::stoul(value, NULL, 10);
-        if (lib_threads == 0 || lib_threads > std::numeric_limits<uint8_t>::max()/2-1) {
-            THROW_GNA_EXCEPTION << "Unsupported accelerator lib number of threads: " << value
-                                                            << ", should be greateer than 0 and less than 127";
-        }
-        gna_lib_async_threads_num = lib_threads;
-    });
-
-    if_set(CONFIG_KEY(SINGLE_THREAD), [&] {
-        if (value == PluginConfigParams::YES) {
-            gna_openmp_multithreading  = false;
-        } else if (value == PluginConfigParams::NO) {
-            gna_openmp_multithreading  = true;
-        } else {
-            THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
-        }
-    });
+    SetConfig(configMap);
 }
 
 GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string &str) const {
@@ -2222,7 +2095,162 @@ void GNAPlugin::GetPerformanceCounts(std::map<std::string, InferenceEngine::Infe
 }
 
 void GNAPlugin::AddExtension(InferenceEngine::IExtensionPtr extension) {}
-void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {}
+void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
+    int inputConfigSize = config.size();
+    int validConfigKeySize = 0;
+    // holds actual value of a found key
+    std::string key;
+    std::string value;
+    auto if_set = [&](std::string keyInput, const std::function<void()> & handler) {
+        auto keyInMap = config.find(keyInput);
+        if (keyInMap != config.end()) {
+            std::cout << keyInput;
+            validConfigKeySize++;
+            value = keyInMap->second;
+            handler();
+        }
+    };
+
+    auto if_start = [&](std::string keyInput, const std::function<void()> & handler) {
+        for (auto && c : config) {
+            if (c.first.find(keyInput) == 0) {
+                if (c.first.size() > keyInput.size() + 1) {
+                    std::cout << keyInput;
+                    validConfigKeySize++;
+                    key = c.first.substr(keyInput.size() + 1);
+                    value = c.second;
+                    handler();
+                }
+            }
+        }
+    };
+
+    auto fp32eq = [](float p1, float p2) -> bool {
+        return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
+    };
+
+    GnaLog log = gnalog();
+
+    if_start(GNA_CONFIG_KEY(SCALE_FACTOR), [&, this] {
+        // only identical scale factors supported so far
+        auto ref = input_scale_factor.size() ? input_scale_factor.begin()->second : 1.0;
+        input_scale_factor[key] = std::stod(value);
+        if (ref != 1.0 && !fp32eq(input_scale_factor[key], ref)) {
+            std::string message = "only identical input scale factors supported, but provided: "
+                    + std::to_string(ref) + " and " + std::to_string(input_scale_factor[key]);
+            log << "only identical input scale factors supported, but provided: " << ref <<" and " << input_scale_factor[key];
+            THROW_GNA_EXCEPTION << "only identical input scale factors supported, but provided: " << ref <<" and " << input_scale_factor[key];
+        }
+    });
+
+    if (input_scale_factor.empty()) {
+        if_set(GNA_CONFIG_KEY(SCALE_FACTOR), [&] {
+            input_scale_factor["placeHolder"] = std::stod(value);
+        });
+    }
+
+    if_set(GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE), [&] {
+        dumpXNNPath = value;
+    });
+
+    if_set(GNA_CONFIG_KEY(DEVICE_MODE), [&] {
+        static caseless_unordered_map <std::string, uint32_t> supported_values = {
+                {GNAConfigParams::GNA_AUTO, GNA_AUTO},
+                {GNAConfigParams::GNA_HW, GNA_HARDWARE},
+                {GNAConfigParams::GNA_SW, GNA_SOFTWARE},
+                {GNAConfigParams::GNA_SW_EXACT, GNA_SOFTWARE & GNA_HARDWARE}
+        };
+        auto procType = supported_values.find(value);
+        if (procType == supported_values.end()) {
+            log << "GNA device mode unsupported: " << value;
+            THROW_GNA_EXCEPTION << "GNA device mode unsupported: " << value;
+        }
+        gna_proc_type = static_cast<intel_gna_proc_t>(procType->second);
+    });
+
+    if_set(GNA_CONFIG_KEY(COMPACT_MODE), [&] {
+        if (value == PluginConfigParams::YES) {
+            compact_mode = true;
+        } else if (value == PluginConfigParams::NO) {
+            compact_mode = false;
+        } else {
+            log << "GNA compact mode should be YES/NO, but not" << value;
+            THROW_GNA_EXCEPTION << "GNA compact mode should be YES/NO, but not" << value;
+        }
+    });
+
+    if_set(CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS), [&] {
+        if (value == PluginConfigParams::YES) {
+            exclusive_async_requests  = true;
+        } else if (value == PluginConfigParams::NO) {
+            exclusive_async_requests  = false;
+        } else {
+            log << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
+            THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
+        }
+    });
+
+    if_set(GNA_CONFIG_KEY(PRECISION), [&] {
+        auto precision = Precision::FromStr(value);
+        if (precision != Precision::I8 && precision != Precision::I16) {
+            log << "Unsupported precision of GNA hardware, should be Int16 or Int8, but was: " << value;
+            THROW_GNA_EXCEPTION << "Unsupported precision of GNA hardware, should be Int16 or Int8, but was: " << value;
+        }
+        gnaPrecision = precision;
+    });
+
+    if_set(GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN), [&] {
+        if (value == PluginConfigParams::YES) {
+            uniformPwlDesign = true;
+        } else if (value == PluginConfigParams::NO) {
+            uniformPwlDesign = false;
+        } else {
+            log << "GNA pwl uniform algorithm parameter "
+                << "should be equal to YES/NO, but not" << value;
+            THROW_GNA_EXCEPTION << "GNA pwl uniform algorithm parameter "
+                                << "should be equal to YES/NO, but not" << value;
+        }
+    });
+
+    if_set(CONFIG_KEY(PERF_COUNT), [&] {
+        if (value == PluginConfigParams::YES) {
+            performance_counting = true;
+        } else if (value == PluginConfigParams::NO) {
+            performance_counting = false;
+        } else {
+            log << "GNA performance counter enabling parameter "
+                << "should be equal to YES/NO, but not" << value;
+            THROW_GNA_EXCEPTION << "GNA performance counter enabling parameter "
+                                << "should be equal to YES/NO, but not" << value;
+        }
+    });
+
+    if_set(GNA_CONFIG_KEY(LIB_N_THREADS), [&] {
+        uint64_t lib_threads = std::stoul(value, NULL, 10);
+        if (lib_threads == 0 || lib_threads > std::numeric_limits<uint8_t>::max()/2-1) {
+            log << "Unsupported accelerator lib number of threads: " << value << ", should be greateer than 0 and less than 127";
+            THROW_GNA_EXCEPTION << "Unsupported accelerator lib number of threads: " << value
+                                << ", should be greateer than 0 and less than 127";
+        }
+        gna_lib_async_threads_num = lib_threads;
+    });
+
+    if_set(CONFIG_KEY(SINGLE_THREAD), [&] {
+        if (value == PluginConfigParams::YES) {
+            gna_openmp_multithreading  = false;
+        } else if (value == PluginConfigParams::NO) {
+            gna_openmp_multithreading  = true;
+        } else {
+            log << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
+            THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
+        }
+    });
+
+    // IE exception is handling in hetero plugin
+    if (inputConfigSize > validConfigKeySize) {
+        THROW_IE_EXCEPTION << "Incorrect GNA Plugin config: " << inputConfigSize << " " << validConfigKeySize;
+    }
+}
 
 /**
  * @depricated Use the version with config parameter
