@@ -211,7 +211,7 @@ inline void quantizeWeightsBiases(const QuantDesc & quantDesc,
     uint32_t num_rows = isDiagonal ? 1 : wl->outData[0]->getDims()[1];
     uint32_t num_columns = wl->insData[0].lock().get()->getDims()[1];
 
-    if (isDiagonal) {
+    if (isDiagonal || wl->type == "AffineFilter") {
         std::swap(num_rows, num_columns);
     }
 

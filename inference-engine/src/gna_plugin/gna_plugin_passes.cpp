@@ -18,6 +18,7 @@
 #include <string>
 #include <memory>
 #include <utility>
+#include <algorithm>
 
 #include <quantization/quantized_layer_params.hpp>
 #include "gna_plugin.hpp"
@@ -25,11 +26,11 @@
 
 
 using namespace InferenceEngine;
-using namespace std;
 using namespace GNAPluginNS;
 
 void GNAPlugin::insertDiagonalLayer(std::vector<CNNLayerPtr> & layers) {
     int numOfDiagLayers = 0;
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
         if (l->insData.empty()) continue;
         auto prevLayer = CNNNetPrevLayer(l);
@@ -63,18 +64,20 @@ void GNAPlugin::insertDiagonalLayer(std::vector<CNNLayerPtr> & layers) {
 #endif
         // actual insertion
         auto diagName = std::string("SyntheticScaleShift_") + std::to_string(numOfDiagLayers++);
-        auto diagLayer = make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
+        auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
 
         // TODO: diagonal size
         std::vector<float> arrayOf1(l->outData[0]->dims[0], 1.f);
-        diagLayer->_weights = make_shared_blob<float>(l->outData[0]->precision, Layout::C, arrayOf1);;
+        diagLayer->_weights = make_shared_blob<float>(l->outData[0]->precision, Layout::C, arrayOf1);
         auto newDims = l->outData[0]->dims;
         auto dataPtr = std::make_shared<Data>(diagName,
                                               newDims,
                                               l->outData[0]->precision,
                                               l->outData[0]->layout);
 
-        auto diagonalWithQuant = InferenceEngine::injectData<QuantizedLayerParams>(diagLayer);
+        auto diagonalWithQuant = quantized ?
+                            InferenceEngine::injectData<QuantizedLayerParams>(diagLayer) :
+                                                                                    diagLayer;
 
         dataPtr->creatorLayer = diagonalWithQuant;
         diagonalWithQuant->outData.push_back(dataPtr);
@@ -105,7 +108,7 @@ void GNAPlugin::reorderMaxPool(std::vector<InferenceEngine::CNNLayerPtr> & layer
 }
 
 std::vector<CNNLayerPtr> GNAPlugin::getCandidatesForIdentityInsertion(const CNNLayerPtr l) {
-    vector<CNNLayerPtr> prevLayers;
+    std::vector<CNNLayerPtr> prevLayers;
 
     // skipping memory inputs and true inputs layers
     if (l->insData.empty()) return {};
@@ -211,8 +214,8 @@ void GNAPlugin::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layer
         auto relu1 = outputLayers.begin()->second;
         auto neg1 = (++outputLayers.begin())->second;
         if (second.isRelu()) {
-            swap(first, second);
-            swap(relu1, neg1);
+            std::swap(first, second);
+            std::swap(relu1, neg1);
         }
         if (!first.isRelu()) continue;
         // now we have relu as first layer, lets check second
@@ -271,6 +274,7 @@ void GNAPlugin::applyOrientations(std::vector<CNNLayerPtr> & layers) {
 
 void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
     int numOfIdentityLayers = 0;
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
         for (auto && prev : getCandidatesForIdentityInsertion(l)) {
             // actual insertion
@@ -279,7 +283,7 @@ void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
             gnalog() << "Inserted "<< activationName << " between: " << prev->name << " and " << l->name << "\n" << std::flush;
 
             CNNLayerPtr activationLayer =
-                make_shared<GenericLayer>(LayerParams({activationName, "identity", Precision::FP32}));
+                std::make_shared<GenericLayer>(LayerParams({activationName, "identity", Precision::FP32}));
             auto inputData = l->insData[0].lock();
             auto newDims = inputData->dims;
             std::reverse(begin(newDims), end(newDims));
@@ -288,8 +292,9 @@ void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
                                                   TensorDesc(inputData->precision,
                                                              newDims,
                                                              inputData->layout));
-
-            auto activationLayerWithQuant = InferenceEngine::injectData<QuantizedLayerParams>(activationLayer);
+            auto activationLayerWithQuant = quantized ?
+                                    InferenceEngine::injectData<QuantizedLayerParams>(activationLayer) :
+                                                                                            activationLayer;
             dataPtr->creatorLayer = activationLayerWithQuant;
             activationLayerWithQuant->outData.push_back(dataPtr);
             // wether 1 identity or all outputs TODO possible grouping here, need to implement special groupped inserter
@@ -311,6 +316,7 @@ void GNAPlugin::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
 
 void GNAPlugin::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
     int numCopyLayers = 0;
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
     for (auto & l : layers) {
         if (l->insData.empty()) continue;
         auto prevLayer = CNNNetPrevLayer(l);
@@ -329,7 +335,7 @@ void GNAPlugin::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & laye
             gnalog() << "Inserted "<< copyName << " between: " << l->name << " and " << prevLayer->name << "\n" << std::flush;
 
             CNNLayerPtr copyLayer =
-            make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
+            std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
 
             auto inputData = l->insData[0].lock();
             auto newDims = inputData->dims;
@@ -341,10 +347,129 @@ void GNAPlugin::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & laye
                                                              newDims,
                                                              inputData->layout));
 
-            auto copyWithQuant = InferenceEngine::injectData<QuantizedLayerParams>(copyLayer);
+            auto copyWithQuant = quantized ?
+                                    InferenceEngine::injectData<QuantizedLayerParams>(copyLayer) :
+                                                                                            copyLayer;
             dataPtr->creatorLayer = copyWithQuant;
             copyWithQuant->outData.push_back(dataPtr);
             CNNNetworkInsertLayer(prevLayer, l, copyWithQuant);
+        }
+    }
+}
+
+void GNAPlugin::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+    int numOfFilterLayers = 0;
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
+    for (auto & l : layers) {
+        if (l->insData.empty()) continue;
+        auto prevLayer = CNNNetPrevLayer(l);
+        if (LayerInfo(prevLayer).isSplit() || LayerInfo(prevLayer).isSlice()) {
+            // if the input is a predecessor layer, we don't need to insert a filter
+            auto splitInput = prevLayer->insData.begin()->lock();
+            auto ptrSplitLayerInput = splitInput->creatorLayer.lock();
+
+            // find this split and check aligning of each output layer
+            size_t layers_size = 0;
+            size_t aligned_layers_size = 0;
+            size_t filter_num_rows_in = 0;
+            size_t data_index = 0;
+
+            // Special case of eltwise, because it can join two parts of the same split
+            if (LayerInfo(l).isEltwise()) {
+                auto input1 = l->insData[0].lock();
+                auto input2 = l->insData[1].lock();
+                uint8_t precision = quantized ? 2 : prevLayer->outData[data_index]->precision.size();
+                if (input1->name.substr(0, input1->name.find(".")) ==
+                                input2->name.substr(0, input2->name.find("."))) {
+                    auto& dataOutput = prevLayer->outData[data_index];
+                    auto split_1st_output_size = InferenceEngine::details::product(begin(dataOutput->dims),
+                                                             end(dataOutput->dims)) * precision;
+
+                    if (split_1st_output_size != ALIGN64(split_1st_output_size)) {
+                        size_t aligned64_prev_offset = std::max(0, static_cast<int>(ALIGN64(split_1st_output_size) - 64));
+                            filter_num_rows_in =
+                                            (split_1st_output_size - aligned64_prev_offset) / precision
+                                                    + InferenceEngine::details::product(begin(dataOutput->dims),
+                                                                                        end(dataOutput->dims));
+                        data_index = prevLayer->outData.size();
+                    } else {
+                        return;
+                    }
+                }
+            }
+
+            for (; data_index < prevLayer->outData.size(); ++data_index) {
+                auto& dataOutput = prevLayer->outData[data_index];
+
+                if (!dataOutput) {
+                    THROW_GNA_EXCEPTION << "Output layer pointer for split/slice is unexpectedly absent";
+                }
+                for (auto&& ptrSplitLayerOutputPair : dataOutput->getInputTo()) {
+                    auto& ptrSplitLayerOutput = ptrSplitLayerOutputPair.second;
+                    if (!ptrSplitLayerOutput) {
+                        THROW_GNA_EXCEPTION << "Output layer for split/slice is unexpectedly absent";
+                    }
+                    if (ptrSplitLayerOutput->name == l->name) {
+                        if (layers_size != aligned_layers_size) {
+                            size_t aligned64_prev_offset = std::max(0, static_cast<int>(aligned_layers_size - 64));
+                            filter_num_rows_in =
+                                            (layers_size - aligned64_prev_offset) / dataOutput->precision.size()
+                                                    + InferenceEngine::details::product(begin(dataOutput->dims),
+                                                                                        end(dataOutput->dims));
+                            break;
+                        }
+                        return;
+                    } else if (data_index == 0) {
+                        // This is the first layer in this split output port
+                        auto split_1st_output_size = InferenceEngine::details::product(begin(dataOutput->dims),
+                                                             end(dataOutput->dims)) * dataOutput->precision.size();
+                        layers_size += split_1st_output_size;
+                        aligned_layers_size += ALIGN64(split_1st_output_size);
+                    }
+                }
+            }
+
+#ifdef PLOT
+        std::cout << "Inserted Affine Filter Layer between: " << prevLayer->name << " and " << l->name << "\n" << std::flush;
+#endif
+            // insert the filter
+            auto filterName = std::string("SyntheticAffineFilter_") + std::to_string(numOfFilterLayers++);
+            auto filterLayer = std::make_shared<WeightableLayer>(LayerParams({filterName, "AffineFilter", Precision::FP32}));
+            auto inputData = l->insData[0].lock();
+            auto newDims = inputData->dims;
+
+            auto& num_rows_out = inputData->dims[0];
+            std::vector<float> filterWeights(ALIGN(filter_num_rows_in, 8) * inputData->dims[0], 0.f);
+            std::vector<float> filterBiases(inputData->dims[0], 0.f);
+            auto offset = filter_num_rows_in - num_rows_out;
+            int out = 0;
+            if (filter_num_rows_in + offset > filterWeights.size()) {
+                THROW_GNA_EXCEPTION << "Weights size not correctly calculated";
+            }
+            for (int input = offset; input < filter_num_rows_in; ++input, ++out) {
+                auto filterWeightsIt = filterWeights.begin();
+                std::advance(filterWeightsIt, input + out * filter_num_rows_in);
+                *filterWeightsIt = 1.0f;
+            }
+
+            filterLayer->_weights = make_shared_blob<float>(inputData->precision, Layout::C, filterWeights);
+
+            auto& dataOutput = prevLayer->outData[1];
+
+            std::reverse(begin(newDims), end(newDims));
+            auto dataPtr = std::make_shared<Data>(filterName,
+                                                TensorDesc(inputData->precision,
+                                                            newDims,
+                                                            inputData->layout));
+
+            auto filterWithQuant = quantized ?
+                                    InferenceEngine::injectData<QuantizedLayerParams>(filterLayer) :
+                                                                                            filterLayer;
+            dataPtr->creatorLayer = filterWithQuant;
+            filterWithQuant->outData.push_back(dataPtr);
+            CNNNetworkInsertLayer(prevLayer, l, filterWithQuant, 1);
+
+            dataOutput->setDims({dataOutput->dims[1], filter_num_rows_in});
         }
     }
 }
