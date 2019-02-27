@@ -2196,16 +2196,36 @@ void GNAPlugin::GetPerformanceCounts(std::map<std::string, InferenceEngine::Infe
 }
 
 void GNAPlugin::AddExtension(InferenceEngine::IExtensionPtr extension) {}
+
 void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
-    int inputConfigSize = config.size();
-    int validConfigKeySize = 0;
+    std::vector<std::string> supportedConfigOptions = {
+        GNA_CONFIG_KEY(SCALE_FACTOR),
+        GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE),
+        GNA_CONFIG_KEY(DEVICE_MODE),
+        GNA_CONFIG_KEY(COMPACT_MODE),
+        CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS),
+        GNA_CONFIG_KEY(PRECISION),
+        GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN),
+        CONFIG_KEY(PERF_COUNT),
+        GNA_CONFIG_KEY(LIB_N_THREADS),
+        CONFIG_KEY(SINGLE_THREAD)
+    };
+
+    for (auto& item : config) {
+        auto keys = std::find_if(supportedConfigOptions.begin(), supportedConfigOptions.end(), [&item](std::string supportedConfigOption) {
+            return item.first.find(supportedConfigOption) != std::string::npos;
+        });
+        if (keys == supportedConfigOptions.end()) {
+            THROW_GNA_EXCEPTION << as_status << NOT_FOUND << "Incorrect GNA Plugin config. Key " << item.first << " not supported";
+        }
+    }
+
     // holds actual value of a found key
     std::string key;
     std::string value;
     auto if_set = [&](std::string keyInput, const std::function<void()> & handler) {
         auto keyInMap = config.find(keyInput);
         if (keyInMap != config.end()) {
-            validConfigKeySize++;
             value = keyInMap->second;
             handler();
         }
@@ -2215,7 +2235,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         for (auto && c : config) {
             if (c.first.find(keyInput) == 0) {
                 if (c.first.size() > keyInput.size() + 1) {
-                    validConfigKeySize++;
                     key = c.first.substr(keyInput.size() + 1);
                     value = c.second;
                     handler();
@@ -2344,11 +2363,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
             THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
         }
     });
-
-    // IE exception is handling in hetero plugin
-    if (inputConfigSize > validConfigKeySize) {
-        THROW_IE_EXCEPTION << "Incorrect GNA Plugin config: " << inputConfigSize << " " << validConfigKeySize;
-    }
 }
 
 /**
