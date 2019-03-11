@@ -324,9 +324,15 @@ void GNAPlugin::ImportFrames(
         }
     } else {
         if (input_precision == Precision::U8) {
-            int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
             uint8_t *src = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(ptr_src));
-            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
+            if (!gnadevice) {
+                float *dst = const_cast<float *>(reinterpret_cast<const float *>(ptr_dst));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
+            } else {
+                int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
+            }
+
         } else if (input_precision.size()== 2) {
             int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
             int16_t *src = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_src));
@@ -1030,19 +1036,25 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     auto transpose = false;
     auto transposedRows = 0;
     auto transposedCols = 0;
-    /**
-     * TODO: enable transpose correction between Conv/affine layers implement dedicated pass
-     * TF topologies have inplace permutes so we dont care
-     * kaldi topologies did this internally
-     */
+
     if (0 && connectionInfo.needTransposeWeights) {
-        gnalog() << "Transposing weights for layer: " << layer->name << "\n";
         // direct order is 0, 1, 2, 3, supported order is only 0,3,2,1 where dim 2 is usually equals to 1
         auto permuteOrder = connectionInfo.permute->GetParamAsInts("order");
         if (permuteOrder != vector<int>({0, 3, 2, 1})) {
             THROW_IE_EXCEPTION << "[GNA plugin] Unsupported permute order: was " << layer->GetParamAsString("order") <<
                                ", but only support 0, 3, 2, 1";
         }
+
+        /**
+         * TODO: weights transpose happened after quantisation might result in poor quality for in 8 - move this to passes
+         */
+        if (weightable._weights->precision() == Precision::I8) {
+            THROW_IE_EXCEPTION << "[GNA plugin] Unsupported permute operation for 8 bit weights for layer: " << layer->name;
+        }
+
+        // this affine connected to convolution via pool or activation
+        gnalog() << "Transposing weights for layer: " << layer->name << "\n";
+
         transpose = !isDiag;
         transposedRows = connectionInfo.permute->input()->getDims()[3];
         transposedCols = connectionInfo.permute->input()->getDims()[1];
@@ -1055,7 +1067,6 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                                         weightable._weights->byteSize(),
                                         64);
         } else {
-            // ToDO: write unit tests for transpose
             gnamem->readonly().push_initializer(ptr_weights, weightable._weights->byteSize(), [=](void * data, size_t size) {
                 for (int k = 0; k < (isDiag ? 1 : num_rows_out); k++) {
                     auto rowOffset = k * transposedRows * transposedCols * weightable.precision.size();
@@ -1072,6 +1083,9 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
             }, 64);
         }
     } else {
+        if (transpose) {
+            THROW_GNA_EXCEPTION << "transpozed weights with non zero padding not yet supported";
+        }
         auto elementsIn = (num_rows_in + num_padding) * num_columns_in;
         auto paddedWeights = isDiag ? elementsIn : elementsIn * num_rows_out;
         auto paddedWeightsSize = paddedWeights * weightable.precision.size();
@@ -1516,10 +1530,14 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         substitutePRelu(layers);
         layers = CNNNetSortTopologically(*network.get());
         reorderMaxPool(layers);
-        applyOrientations(layers);
         //  ToDo sort if bool flag "changed"
         //  returned from insertion function
         insertAligningFilterLayer(layers);
+
+#if ENABLE_AUTO_PERMUTE
+        layers = CNNNetSortTopologically(*network.get());
+        reversePermutations(layers);
+#endif
         layers = CNNNetSortTopologically(*network.get());
         insertIdentityLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
@@ -1877,8 +1895,8 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
                      orientation_in[input.first],
                      dims[dims.size() - 1],
                      is2D ? dims[1] : dims[dims.size() - 1],
-                     is2D ? dims[0] : dims[0] * dims[2],
-                     is2D ? dims[0] : dims[0] * dims[2]);
+                     is2D ? dims[0] : dims[0] * dims[1] * dims[2],
+                     is2D ? dims[0] : dims[0] * dims[1] * dims[2]);
         bool isOneChannel = input.second->getTensorDesc().getDims()[1] == 1;
         if (((inputLayout == Layout::NC || inputLayout == Layout::NCHW)
             != (orientation_in[input.first] == kDnnInterleavedOrientation))
@@ -2187,7 +2205,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
     auto if_set = [&](std::string keyInput, const std::function<void()> & handler) {
         auto keyInMap = config.find(keyInput);
         if (keyInMap != config.end()) {
-            std::cout << keyInput;
             validConfigKeySize++;
             value = keyInMap->second;
             handler();
@@ -2198,7 +2215,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         for (auto && c : config) {
             if (c.first.find(keyInput) == 0) {
                 if (c.first.size() > keyInput.size() + 1) {
-                    std::cout << keyInput;
                     validConfigKeySize++;
                     key = c.first.substr(keyInput.size() + 1);
                     value = c.second;

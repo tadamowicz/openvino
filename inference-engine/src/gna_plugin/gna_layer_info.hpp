@@ -140,9 +140,6 @@ class LayerInfo {
         return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "FullyConnected") ||
                 InferenceEngine::details::CaselessEq<std::string>()(layer->type, "InnerProduct");
     }
-    bool isConvolutional() const noexcept {
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "Convolution");
-    }
     bool isSplit() const noexcept {
         IS_VALID();
         return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "split");

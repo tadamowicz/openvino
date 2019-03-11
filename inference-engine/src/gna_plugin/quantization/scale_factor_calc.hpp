@@ -234,7 +234,7 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
                             }
 
                             // if we are here it means that we are in the port 1
-                            if (info.isFullyConnected() || info.isConvolutional()) {
+                            if (info.isFullyConnected() || info.isConvolution()) {
                                 auto quantDataForInputLayer = InferenceEngine::getInjectedData<QuantizedLayerParams>(*in);
                                 auto newOutputScale = quantParams->_dst_quant.scale * maxValue;
                                 auto newWeightScale = newOutputScale / quantDataForInputLayer->_src_quant.scale;
