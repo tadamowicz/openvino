@@ -38,11 +38,10 @@ class ScaleFactorPerLayer {
      * also calculates output scale factor for the given layer
      * @param cnnLayer
      * @param weightsSize
-     * @param inputScaleFactor
      * @param result
      * @return
      */
-    bool operator()(T cnnLayer, int weightsSize, float inputScaleFactor, ScaleFactorUpdateResult &result) {
+    bool operator()(T cnnLayer, int weightsSize, ScaleFactorUpdateResult &result) {
         return false;
     }
 };
@@ -64,7 +63,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             // set the initial value
             float result = 1.0f;
             result = (layer.isIdentity()) ? identity_scale_factor : activation_scale_factor;
-            // if activation is one from relu family, we need to apply heuruistic to avoid activation output overflow
+            // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
             if (layer.isRelu() &&
                     static_cast<uint64_t>(result * qunatizedParams->_src_quant.scale)
                                                                 > std::numeric_limits<int32_t>::max()-1) {
@@ -74,7 +73,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
     }
 
  public :
-    bool operator()(InferenceEngine::CNNLayer *cnnLayer, int weightsSize, float inputScaleFactor, ScaleFactorUpdateResult &result) {
+    bool operator()(InferenceEngine::CNNLayer *cnnLayer, int weightsSize, ScaleFactorUpdateResult &result) {
         if ( !cnnLayer ) {
             THROW_IE_EXCEPTION << "Incorrect Convolutional Layer pointer \n";
         }
@@ -123,7 +122,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
         }
 
         if (!CNNNetHasPrevLayer(cnnLayer)) {
-            quant->_dst_quant.scale = inputScaleFactor;
+            quant->_dst_quant.scale = quant->_src_quant.scale;
             return ScaleFactorUpdateResult();
         }
 
@@ -144,7 +143,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
 template<>
 class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
  public:
-    bool operator()(InferenceEngine::EltwiseLayer* eltwiseLayer, int weightsSize, float inputScaleFactor, ScaleFactorUpdateResult &result) {
+    bool operator()(InferenceEngine::EltwiseLayer* eltwiseLayer, int weightsSize, ScaleFactorUpdateResult &result) {
         if ( !eltwiseLayer ) {
             THROW_GNA_EXCEPTION << "Incorrect Eltwise Layer pointer \n";
         }
@@ -231,7 +230,7 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
 template<>
 class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
  public:
-    bool operator()(InferenceEngine::ConcatLayer* concatLayer, int weightsSize, float inputScaleFactor, ScaleFactorUpdateResult &result) {
+    bool operator()(InferenceEngine::ConcatLayer* concatLayer, int weightsSize, ScaleFactorUpdateResult &result) {
         if ( !concatLayer ) {
             THROW_GNA_EXCEPTION << "Incorrect Concat Layer pointer \n";
         }
@@ -289,7 +288,7 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
     uint16_t const _scale_change_threshold_200 = 200;
 
  public:
-    bool operator()(InferenceEngine::WeightableLayer *wl, int weightsSize, float inputScaleFactor, ScaleFactorUpdateResult &result) {
+    bool operator()(InferenceEngine::WeightableLayer *wl, int weightsSize, ScaleFactorUpdateResult &result) {
         if ( !wl ) {
             THROW_GNA_EXCEPTION << "Incorrect Weightable Layer pointer  \n";
         } else if (!wl->_weights) {
@@ -354,8 +353,8 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
 template<>
 class ScaleFactorPerLayer<InferenceEngine::ScaleShiftLayer*> : public ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
  public:
-    bool operator()(InferenceEngine::WeightableLayer *wl, int weightsSize, float inputScaleFactor, ScaleFactorUpdateResult &result) {
-        return ScaleFactorPerLayer<InferenceEngine::WeightableLayer*>::operator()(wl, 2, inputScaleFactor, result);
+    bool operator()(InferenceEngine::WeightableLayer *wl, int weightsSize, ScaleFactorUpdateResult &result) {
+        return ScaleFactorPerLayer<InferenceEngine::WeightableLayer*>::operator()(wl, 2, result);
     }
 };
 
@@ -377,13 +376,12 @@ class ScaleFactorCalculator {
     using Cnt = std::vector<InferenceEngine::CNNLayerPtr>;
     Cnt  net;
     mutable Cnt::const_iterator idx;
-    float inputScaleFactor;
     mutable bool needRestart = false;
     int weightsBytesSize;
 
  public:
-    ScaleFactorCalculator(Cnt &net, int weightsBytesSize, float inputScaleFactor)
-            : net(net), inputScaleFactor(inputScaleFactor), weightsBytesSize(weightsBytesSize) {
+    ScaleFactorCalculator(Cnt &net, int weightsBytesSize)
+            : net(net), weightsBytesSize(weightsBytesSize) {
         idx = std::begin(this->net);
     }
     bool needToRestart() const {
@@ -399,7 +397,7 @@ class ScaleFactorCalculator {
     bool operator()(T ptr) const {
         needRestart = false;
         details::ScaleFactorUpdateResult result;
-        if (!details::ScaleFactorPerLayer<T>()(ptr, weightsBytesSize, inputScaleFactor, result)) {
+        if (!details::ScaleFactorPerLayer<T>()(ptr, weightsBytesSize, result)) {
             return false;
         }
         if (result) {

@@ -54,12 +54,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     std::unordered_map<std::string, intel_dnn_orientation_t> orientation_in;
     intel_dnn_orientation_t orientation_out = kDnnUnknownOrientation;
 
-    /**
-     * temporary solution to support multiple scale factors
-     * @return
-     */
-    float get_input_scale_factor() const;
-    std::unordered_map<std::string, double> input_scale_factor;
+    /// order of scale factors matches inputs order in original topology
+    std::vector<float> inputScaleFactors;
 
     double output_scale_factor = 1.0;
     uint32_t num_rotate_rows = 0;
@@ -419,6 +415,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void ImportFrames(void *ptr_dst,
                      const void *ptr_src,
                      InferenceEngine::Precision input_precision,
+                     float scaleFactor,
                      intel_dnn_orientation_t orientation,
                      uint32_t num_frames,
                      uint32_t num_group,
@@ -426,7 +423,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                      uint32_t num_vector_stride);
 
     void ExportScores(void *ptr_dst,
-                     void *ptr_src,
+                     const void *ptr_src,
                      intel_dnn_orientation_t orientation,
                      uint32_t num_frames,
                      uint32_t num_group,
@@ -456,13 +453,15 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                     uint32_t num_group,
                     uint32_t num_vector_elements,
                     uint32_t num_vector_stride,
-                    intel_dnn_orientation_t orientation);
+                    intel_dnn_orientation_t orientation,
+                    float scaleFactor);
 
     template <typename T, typename U>
     void copyInputDataWithSplit(T *const dst,
                     const U *src,
                     const GNASplitLayer& splitInfo,
-                    size_t precision_size);
+                    size_t precision_size,
+                    int idx = 0);
     /**
      * @brief GNA affine layers are always have activation atached, while IR not
      */
