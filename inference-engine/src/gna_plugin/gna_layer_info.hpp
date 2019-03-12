@@ -116,6 +116,11 @@ class LayerInfo {
         IS_VALID();
         return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "input");
     }
+    bool isScaleShift() const noexcept {
+        IS_VALID();
+        return nullptr != as<const InferenceEngine::ScaleShiftLayer*>();
+    }
+
     bool isEltwise() const noexcept {
         IS_VALID();
         return nullptr != as<const InferenceEngine::EltwiseLayer*>();

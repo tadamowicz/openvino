@@ -1545,6 +1545,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         layers = CNNNetSortTopologically(*network.get());
         insertDiagonalLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
+        substituteScaleShiftBroadCast(layers);
     };
 
     Config supported = Config({
@@ -2247,7 +2248,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
     };
 
-    GnaLog log = gnalog();
+    auto & log = gnalog();
 
     if_start(GNA_CONFIG_KEY(SCALE_FACTOR), [&, this] {
         // only identical scale factors supported so far

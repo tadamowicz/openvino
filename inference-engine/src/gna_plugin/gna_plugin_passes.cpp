@@ -14,6 +14,7 @@
 // stated in the License.
 //
 
+#include "gna_plugin_policy.hpp"
 #include <vector>
 #include <string>
 #include <memory>
@@ -568,6 +569,88 @@ void GNAPlugin::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerP
             CNNNetworkInsertLayer(prevLayer, l, filterWithQuant, 1);
 
             dataOutput->setDims({dataOutput->dims[1], filter_num_rows_in});
+        }
+    }
+}
+
+
+void GNAPlugin::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
+    for (auto & l : layers) {
+        LayerInfo layerInfo(l);
+
+        if (!layerInfo.isScaleShift()) {
+            continue;
+        }
+
+        auto scaleShift = layerInfo.as<ScaleShiftLayer*>();
+
+        auto insData = scaleShift->insData.front().lock();
+        if (!insData) {
+            THROW_GNA_EXCEPTION << "Cannot get inputs data for layer: " << l->name;
+        }
+
+        if (insData->getDims().size() <= 2) {
+            // NC or C cannot do broadcast
+            continue;
+        }
+        auto batchSize = insData->getDims()[0];
+        auto nElements = details::product(insData->getDims()) / batchSize;
+        auto weightsElements = scaleShift->_weights->size();
+        auto weightsBytes = scaleShift->_weights->byteSize();
+
+        if (nElements == weightsElements) {
+            continue;
+        }
+
+        // only 3d scaleshift supported where number of c is arbitrary
+        auto lastD = insData->getDims()[insData->getDims().size() - 1];
+        if (lastD != weightsElements) {
+            THROW_GNA_EXCEPTION << "Unsupported layer: " << l->name
+                                << " should have last dim(" << lastD << ") equal to weights(" << weightsElements << ") length";
+        }
+        if (insData->getDims().size() == 2) {
+            THROW_GNA_EXCEPTION << "For layer: " << l->name
+                                << " weights size(" << weightsElements<< ") invalid: should match input size of(" << lastD << ")";
+        }
+
+        gnalog() << "Substitution ScaleShift broadcast for layer: " << l->name << "\n";
+        // approach 1 - weights tiling
+        if (policy.ScaleShiftPolicy == Policy::WEIGHTS_TILING) {
+            auto tileBlob = [](Blob::Ptr &blob, size_t TileTo){
+                auto weightsElements = blob->size();
+                auto weightsBytes = blob->byteSize();
+
+                if (TileTo % weightsElements) {
+                    return false;
+                }
+
+                auto tiledBlob = make_plain_blob(blob->getTensorDesc().getPrecision(), {TileTo});
+                tiledBlob->allocate();
+
+
+                for (int i=0; i != TileTo / weightsElements; i++) {
+                    ie_memcpy(tiledBlob->buffer().as<uint8_t*>() + i * weightsBytes, weightsBytes, blob->cbuffer(), weightsBytes);
+                }
+                blob = tiledBlob;
+                return true;
+            };
+
+            if (!tileBlob(scaleShift->_weights, nElements)) {
+                THROW_GNA_EXCEPTION << "Cannot tile weights for layer: " << l->name << ", due to weights size not GCD of dims product";
+            }
+            if (scaleShift->_biases) {
+                if (!tileBlob(scaleShift->_biases, nElements)) {
+                    THROW_GNA_EXCEPTION << "Cannot tile biases for layer: " << l->name << ", due to biases size not GCD of dims product";
+                }
+            }
+
+            // currently data type no providing reshape method of tensor desc
+            scaleShift->outData.front()->reshape({batchSize, nElements}, Layout::NC);
+            insData->reshape({batchSize, nElements}, Layout::NC);
+        } else {
+            THROW_GNA_EXCEPTION << "Not implemented substitution of scaleshift broadcast policy of "
+                                << policy.ScaleShiftPolicy <<  "using layers tiling, layer: " << l->name;
         }
     }
 }
