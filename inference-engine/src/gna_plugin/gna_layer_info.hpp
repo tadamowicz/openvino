@@ -1,6 +1,6 @@
 //
 // INTEL CONFIDENTIAL
-// Copyright 2016 Intel Corporation.
+// Copyright (C) 2018-2019 Intel Corporation.
 //
 // The source code contained or described herein and all documents
 // related to the source code ("Material") are owned by Intel Corporation
@@ -116,6 +116,11 @@ class LayerInfo {
         IS_VALID();
         return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "input");
     }
+    bool isScaleShift() const noexcept {
+        IS_VALID();
+        return nullptr != as<const InferenceEngine::ScaleShiftLayer*>();
+    }
+
     bool isEltwise() const noexcept {
         IS_VALID();
         return nullptr != as<const InferenceEngine::EltwiseLayer*>();

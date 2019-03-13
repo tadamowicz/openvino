@@ -1468,7 +1468,7 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     auto network_precision = network.getPrecision();
     network.getInputsInfo(inputs);
     auto network_input_precision = inputs.begin()->second->getInputPrecision();
-    auto batch_sise = network.getBatchSize();
+    auto batch_size = network.getBatchSize();
     if (network_precision != Precision::FP32) {
         errMessage = "The plugin does not support networks with " + std::string(network_precision.name()) + " format.\n";
         return false;
@@ -1505,7 +1505,9 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
                                                     errMessage = "Layer is unsupported by GNA: " + layer->name + ":" + layer->type + "\n";
                                                     check_result =  false;
                                                 }
-                                                if (batch_sise != 1 && LayerInfo::isBatchSizeConstrained(layer->type)) {
+                                                if (batch_size != 1 && LayerInfo::isBatchSizeConstrained(layer->type)) {
+                                                    errMessage = "topology with layer: " + layer->name + ", type: " + layer->type +
+                                                                 ", and batch size(" + to_string(batch_size) + ") != 1 not supported";
                                                     check_result =  false;
                                                 }
                                             }, false);
@@ -1545,6 +1547,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         layers = CNNNetSortTopologically(*network.get());
         insertDiagonalLayer(layers);
         layers = CNNNetSortTopologically(*network.get());
+        substituteScaleShiftBroadCast(layers);
     };
 
     Config supported = Config({
@@ -1581,18 +1584,8 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     supported.setDefaultDevice(TargetDevice::eGNA);
     auto newNet = supported.find_configuration(network).convert(network);
-    auto networkPrecision = newNet->getPrecision();
 
-    if (!networkPrecision.is_float()) {
-        gnadevice.reset(new GNADeviceHelper(gna_proc_type,
-                                            gna_lib_async_threads_num,
-                                            gna_openmp_multithreading,
-                                            performance_counting));
-        gnamem.reset(new gna_memory_type(
-                    make_polymorph<GNAAllocator>(*gnadevice.get()), PAGE_SIZE_BYTES));
-    } else {
-        gnamem.reset(new gna_memory_type(make_polymorph<std::allocator<uint8_t>>()));
-    }
+
 
     // creating intel dnn_t structures from network
     auto sortedNet = CNNNetSortTopologically(*newNet);
@@ -1622,6 +1615,23 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     // fill in extra storage with memory layers
     fillMemoryConnections(memoryPairs);
+
+    if (memory_connection.size() != 0) {
+        gna_lib_async_threads_num = 1;
+    }
+
+    auto networkPrecision = newNet->getPrecision();
+
+    if (!networkPrecision.is_float()) {
+        gnadevice.reset(new GNADeviceHelper(gna_proc_type,
+                                            gna_lib_async_threads_num,
+                                            gna_openmp_multithreading,
+                                            performance_counting));
+        gnamem.reset(new gna_memory_type(
+                make_polymorph<GNAAllocator>(*gnadevice.get()), PAGE_SIZE_BYTES));
+    } else {
+        gnamem.reset(new gna_memory_type(make_polymorph<std::allocator<uint8_t>>()));
+    }
 
     // keep inputs information and create input primitives
     newNet->getInputsInfo(inputsDataMap);
@@ -1847,10 +1857,17 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
     });
 
     if (freeNnet == nnets.end()) {
-        THROW_IE_EXCEPTION << as_status << REQUEST_BUSY
-                           << "GNA executable network has max of " << static_cast<uint32_t >(gna_lib_async_threads_num)
-                           << " parallel infer requests, please sync one of already running";
+        if (memory_connection.size() != 0) {
+            Wait(0);
+            freeNnet = nnets.begin();
+        } else {
+            THROW_IE_EXCEPTION << as_status << REQUEST_BUSY
+                               << "GNA executable network has max of "
+                               << static_cast<uint32_t >(gna_lib_async_threads_num)
+                               << " parallel infer requests, please sync one of already running";
+        }
     }
+
 
     auto nnet = std::get<0>(*freeNnet).get();
     auto idx = static_cast<uint32_t>(std::distance(std::begin(nnets), freeNnet));
@@ -2196,16 +2213,36 @@ void GNAPlugin::GetPerformanceCounts(std::map<std::string, InferenceEngine::Infe
 }
 
 void GNAPlugin::AddExtension(InferenceEngine::IExtensionPtr extension) {}
+
 void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
-    int inputConfigSize = config.size();
-    int validConfigKeySize = 0;
+    std::vector<std::string> supportedConfigOptions = {
+        GNA_CONFIG_KEY(SCALE_FACTOR),
+        GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE),
+        GNA_CONFIG_KEY(DEVICE_MODE),
+        GNA_CONFIG_KEY(COMPACT_MODE),
+        CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS),
+        GNA_CONFIG_KEY(PRECISION),
+        GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN),
+        CONFIG_KEY(PERF_COUNT),
+        GNA_CONFIG_KEY(LIB_N_THREADS),
+        CONFIG_KEY(SINGLE_THREAD)
+    };
+
+    for (auto& item : config) {
+        auto keys = std::find_if(supportedConfigOptions.begin(), supportedConfigOptions.end(), [&item](std::string supportedConfigOption) {
+            return item.first.find(supportedConfigOption) != std::string::npos;
+        });
+        if (keys == supportedConfigOptions.end()) {
+            THROW_GNA_EXCEPTION << as_status << NOT_FOUND << "Incorrect GNA Plugin config. Key " << item.first << " not supported";
+        }
+    }
+
     // holds actual value of a found key
     std::string key;
     std::string value;
     auto if_set = [&](std::string keyInput, const std::function<void()> & handler) {
         auto keyInMap = config.find(keyInput);
         if (keyInMap != config.end()) {
-            validConfigKeySize++;
             value = keyInMap->second;
             handler();
         }
@@ -2215,7 +2252,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         for (auto && c : config) {
             if (c.first.find(keyInput) == 0) {
                 if (c.first.size() > keyInput.size() + 1) {
-                    validConfigKeySize++;
                     key = c.first.substr(keyInput.size() + 1);
                     value = c.second;
                     handler();
@@ -2228,7 +2264,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
     };
 
-    GnaLog log = gnalog();
+    auto & log = gnalog();
 
     if_start(GNA_CONFIG_KEY(SCALE_FACTOR), [&, this] {
         // only identical scale factors supported so far
@@ -2344,11 +2380,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
             THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
         }
     });
-
-    // IE exception is handling in hetero plugin
-    if (inputConfigSize > validConfigKeySize) {
-        THROW_IE_EXCEPTION << "Incorrect GNA Plugin config: " << inputConfigSize << " " << validConfigKeySize;
-    }
 }
 
 /**
@@ -2384,7 +2415,7 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                                                     res.supportedLayers.insert(layer->name);
                                                 }
                                             }, false);
-}
+    }
 
 intel_dnn_component_t * GNAPlugin::find_first_unused_input(InferenceEngine::CNNLayerPtr current) {
     if (current->insData.empty()) return nullptr;

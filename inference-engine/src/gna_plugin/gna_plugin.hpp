@@ -36,8 +36,7 @@
 #include <graph_tools.hpp>
 #include "gna_allocator.hpp"
 #include "gna_api_wrapper.hpp"
-
-#define ENABLE_AUTO_PERMUTE 0
+#include "gna_plugin_policy.hpp"
 
 namespace GNAPluginNS {
 
@@ -199,7 +198,13 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      */
      std::vector<InferenceEngine::IMemoryStateInternal::Ptr>  QueryState();
 
+     /**
+      * test-wise API
+      */
+     void SetPolicy(Policy p) {policy = p;}
+
  protected:
+    Policy policy;
     uint32_t num_cnn_rows_out = 0;
     bool done = false;
     std::string dumpXNNPath;
@@ -471,10 +476,15 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                     const GNASplitLayer& splitInfo,
                     size_t precision_size);
     /**
-     * @brief GNA affine layers are always have activation atatched, while IR not
-     * @param net - copied net ready for quantisation
+     * @brief GNA affine layers are always have activation atached, while IR not
      */
     void insertIdentityLayer(std::vector<InferenceEngine::CNNLayerPtr> &layers);
+
+    /**
+     * @brief GNA cannot support broadcast - so we will tile weights and biases for scaleshift layer
+     */
+    void substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLayerPtr> &layers);
+
 
     /**
      * @brief GNA convolution layers have deinterleaved layout, while affine one doesn't
