@@ -2401,20 +2401,18 @@ void AmIntelDnn::WriteInputAndOutputText() {
                 float floatValue = 0.f;
                 if (component[i].num_bytes_per_output == 4) {
                     if (number_type_ == kDnnInt) {
-                        auto value = (reinterpret_cast<int32_t *>(component[i].ptr_outputs)[k * component[i].num_columns_out+ j]);
-                    //    out_file << std::setw(8) << value << "\n";
-                        floatValue = (static_cast<float>(value) / component[i].output_scale_factor);
+                        auto value = reinterpret_cast<int32_t *>(component[i].ptr_outputs)[k * component[i].num_columns_out+ j];
+                        floatValue = static_cast<float>(value);
 
                     } else {
-                        floatValue = (reinterpret_cast<float*>(component[i].ptr_outputs)[
-                            k * component[i].num_columns_out+ j]) / component[i].output_scale_factor;
+                        floatValue = reinterpret_cast<float*>(component[i].ptr_outputs)[k * component[i].num_columns_out+ j];
                     }
                 } else {
                     auto value = reinterpret_cast<int16_t *>(component[i].ptr_outputs)[k * component[i].num_columns_out+ j];
-                 //   out_file << std::setw(8) << value << "\n";
-                    floatValue = (static_cast<float>(value) / component[i].output_scale_factor);
+                    floatValue = static_cast<float>(value);
                 }
-                out_file << std::setw(8) << floatValue << "\n";
+                out_file << std::setw(8) << floatValue / component[i].output_scale_factor << "\n";
+
                 if (ref_out_file) {
                     float ref_value = 0.f;
                     ref_out_file >> ref_value;
@@ -2436,25 +2434,31 @@ void AmIntelDnn::WriteInputAndOutputText() {
                         << " maxD="<< std::fixed << std::setprecision(5) << std::right << std::setw(8) << maxD << std::endl;
         }
 
+        float input_scale_factor = component[i].output_scale_factor;
+        if (component[i].operation == kDnnAffineOp ||
+            component[i].operation == kDnnDiagonalOp) {
+            input_scale_factor /= component[i].op.affine.weight_scale_factor;
+        } else if (component[i].operation == kDnnConvolutional1dOp) {
+            input_scale_factor /= component[i].op.conv1D.weight_scale_factor;
+        } else if (component[i].operation == kDnnPiecewiselinearOp) {
+            input_scale_factor = 1.f;
+        }
 
         for (int k = 0; k < component[i].num_rows_in; k++) {
             for (int j = 0; j < component[i].num_columns_in; j++) {
+                float floatValue = 0.f;
                 if (component[i].num_bytes_per_input == 4) {
                     if (number_type_ == kDnnInt) {
-                        in_file << std::setw(8)
-                                << (reinterpret_cast<int32_t *>(component[i].ptr_inputs)[k * component[i].num_columns_in
-                                    + j]);
+                        auto value = reinterpret_cast<int32_t *>(component[i].ptr_inputs)[k * component[i].num_columns_in + j];
+                        floatValue = static_cast<float>(value);
                     } else {
-                        in_file << std::setw(8)
-                                << (reinterpret_cast<float *>(component[i].ptr_inputs)[k * component[i].num_columns_in
-                                    + j]);
+                        floatValue = reinterpret_cast<float *>(component[i].ptr_inputs)[k * component[i].num_columns_in + j];
                     }
                 } else {
-                    in_file << std::setw(8)
-                            << (reinterpret_cast<int16_t *>(component[i].ptr_inputs)[k * component[i].num_columns_in
-                                + j]);
+                    auto value = reinterpret_cast<int16_t *>(component[i].ptr_inputs)[k * component[i].num_columns_in+ j];
+                    floatValue = static_cast<float>(value);
                 }
-                in_file << "\n";
+                in_file << std::setw(8) << floatValue / input_scale_factor << "\n";
             }
         }
 #endif
