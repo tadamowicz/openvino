@@ -317,7 +317,18 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             if (weightsSize == 1) {
                 quant->_weights_quant.scale *= MAX_OUT_MULTIPLIER;
             }
+
+            double weights_reducer = 1.0;
+            if (dynamic_cast<ConvolutionLayer*>(wl)) {
+                auto conv = dynamic_cast<ConvolutionLayer*>(wl);
+                auto dims = conv->insData.front().lock()->getDims();
+
+                weights_reducer = MAX_VAL_2B_FEAT * scaleRange * dims[1] / std::numeric_limits<int32_t>::max();
+                weights_reducer = std::max(1.0, weights_reducer);
+            }
+            quant->_weights_quant.scale /= weights_reducer;
         }
+
 
         quant->_src_quant.scale = quantDataForInputLayer->_dst_quant.scale;
 
