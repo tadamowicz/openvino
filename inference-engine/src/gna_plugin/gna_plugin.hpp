@@ -289,7 +289,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
         InferenceEngine::CNNLayerPtr getSplit() { return splitLayer; }
         /**
-         * gna memory of this size is reserved for concat
+         * gna memory of this size is reserved for split
          */
         size_t reserved_size = 0;
         bool output_allocation_flag = false;
@@ -512,7 +512,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
 
     /**
-     * aligned filter layer insertion required in cases when split/slice have output comnnections on not aligned addresses
+     * aligned filter layer insertion required in cases when split/slice have output connections on not aligned addresses
      */
     void insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers);
 

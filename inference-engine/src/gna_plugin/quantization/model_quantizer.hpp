@@ -47,7 +47,7 @@ class ModelQuantizer {
             gnalog() << layer->name << std::endl;
         }
 
-        // weights scale is a hint, not all weightable layer preserve it in all possible precisions
+        // weights scale is a hint, not all weightable layers preserve it in all possible precisions
         propagateScaleFactor(sortedNewNet, T::mandatory().getWeightsPrecision().size(), scaleFactor);
 
         // sorted order gives possibility for propagate quantisation along depended layers
