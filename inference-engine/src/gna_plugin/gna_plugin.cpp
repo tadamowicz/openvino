@@ -417,9 +417,8 @@ void GNAPlugin::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) {
                                                      end(dataOutput->dims)) * dataOutput->precision.size();
 
             if (ptrSplitLayerOutput->type == "AffineFilter") {
-                size_t aligned64_offset = std::max(0, static_cast<int>(ALIGN64(split_size) - 64));
-                size_t filter_layer_size = output_layer_size + (split_size - aligned64_offset);
-                layerInfoItem.splitOutputLayers.emplace_back(ptrSplitLayerOutput->name, aligned64_offset, filter_layer_size);
+                size_t aligned64_offset = ptrSplitLayerOutput->GetParamAsInt("offset");
+                layerInfoItem.splitOutputLayers.emplace_back(ptrSplitLayerOutput->name, aligned64_offset, output_layer_size);
             } else {
                 layerInfoItem.splitOutputLayers.emplace_back(ptrSplitLayerOutput->name, split_size, output_layer_size);
             }
@@ -903,6 +902,7 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_rows_in = FROM_IR_DIM(inputs4Bytes, 1);
     uint32_t num_columns_in = FROM_IR_DIM(inputs4Bytes, 2);
     uint32_t num_rows_out = num_rows_in;
+    uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
     void *ptr_inputs;
     void *ptr_outputs;
@@ -912,9 +912,9 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
     dnn.InitAffineComponent(currentComponent,
-                            num_rows_in,
+                            num_rows_in + num_padding,
                             num_columns_in,
-                            num_rows_out,
+                            num_rows_out + num_padding,
                             inputs2Bytes->precision.size(),
                             outputs->precision.size(),
                             // TODO: only fp32 and Int16 tested
@@ -933,11 +933,11 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
 #endif
 
     size_t num_data_bytes_out =
-            InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
-                                                                            * outputs->precision.size();
+        InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims)) * outputs->precision.size();
+
     size_t num_data_bytes_in =
-            InferenceEngine::details::product(begin(inputs2Bytes->dims), end(inputs2Bytes->dims))
-                                                                            * inputs2Bytes->precision.size();
+        num_columns_in * (num_rows_in + num_padding) * inputs2Bytes->precision.size();
+
     connectOutput(layer, ptr_outputs, ptr_inputs, num_data_bytes_out);
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 1 - biasesLayerIdx);
 
@@ -951,6 +951,7 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
                 #define FLOAT_TO_INT16(a) static_cast<int16_t>(((a) < 0)?((a) - 0.5):((a) + 0.5))
 
                 auto quantizedIdentity = FLOAT_TO_INT16(std::min(scaledIdentity, static_cast<float>(INT16_MAX)));
+
                 gnamem->readonly().push_value<int16_t>(ptr_weights, quantizedIdentity, num_rows_out, 64);
             }
             connectInput(layer, ptr_biases, num_data_bytes_in, 0, biasesLayerIdx);
@@ -1138,7 +1139,7 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
     // we look for this concat layer pointer in extra concat map
     auto prevLayer = CNNNetPrevLayer(layer.get(), 0);
     if (!LayerInfo(prevLayer).isSplit() && !LayerInfo(prevLayer).isSlice()) {
-        THROW_GNA_EXCEPTION << "Case for with filter for not Split/Slice layers is not implemented yet!";
+        THROW_GNA_EXCEPTION << "Case  with Affine Aligning Filter for not Split/Slice layers is not implemented yet!";
     }
 
     void *ptr_inputs;
@@ -1149,18 +1150,18 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
 
-    uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
     uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
     uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
+    uint32_t num_rows_in = filterLayer->_weights->size() / num_rows_out;
+
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
-    uint32_t offset = num_rows_in - num_rows_out;
 
     gnalog() << "Filter " << layer->name << " is being inserted...\n";
     auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->precision() : outputs->precision;
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
     dnn.InitAffineComponent(currentComponent,
-                            ALIGN(num_rows_in, 8),
+                            num_rows_in + num_padding,
                             num_columns_in,
                             num_rows_out,
                             inputs->precision.size(),
