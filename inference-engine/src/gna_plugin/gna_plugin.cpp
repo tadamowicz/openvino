@@ -786,7 +786,7 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
     }
     if (cropLayer->axis.size() > 1) {
         THROW_GNA_EXCEPTION <<
-        "Crop layer does not support the number of cropped dimentions = "
+        "Crop layer does not support the number of cropped dimensions = "
         << cropLayer->axis.size() << ".";
     }
 
