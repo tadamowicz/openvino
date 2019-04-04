@@ -123,8 +123,7 @@ void GNAPlugin::copyInputData(T *dst,
                 uint32_t num_group,
                 uint32_t num_vector_elements,
                 uint32_t num_vector_stride,
-                intel_dnn_orientation_t orientation,
-                float scaleFactor) {
+                intel_dnn_orientation_t orientation) {
     if (!dst || !src) {
         return;
     }
@@ -132,7 +131,7 @@ void GNAPlugin::copyInputData(T *dst,
         for (uint32_t i = 0; i < num_frames; i++) {
             for (uint32_t j = 0; j < num_vector_elements; j++) {
                 if (!std::is_same<T, U>::value) {
-                    dst[j * num_group + i] = GNAPluginNS::ConvertFloatToInt16(src[i * num_vector_elements + j] * scaleFactor);
+                    dst[j * num_group + i] = GNAPluginNS::ConvertFloatToInt16(src[i * num_vector_elements + j] * get_input_scale_factor());
                 } else {
                     dst[j * num_group + i] = src[i * num_vector_elements + j];
                 }
@@ -151,25 +150,25 @@ void GNAPlugin::copyInputData(T *dst,
     } else {
         if (!std::is_same<T, U>::value) {
             for (uint32_t i = 0; i < num_frames; i++) {
-                T *ptr_dst_vec = reinterpret_cast<T *>(dst) + i * num_vector_stride;
-                const U *ptr_src_vec = reinterpret_cast<const U *>(src) + i * num_vector_elements;
+                T *ptr_dst_vec = const_cast<T *>(reinterpret_cast<const T *>(dst) + i * num_vector_stride);
+                U *ptr_src_vec = const_cast<U *>(reinterpret_cast<const U *>(src) + i * num_vector_elements);
                 std::memset(ptr_dst_vec, 0, num_vector_stride * sizeof(T));
                 for (int j=0; j < num_vector_elements; j++) {
-                    ptr_dst_vec[j] = GNAPluginNS::ConvertFloatToInt16(ptr_src_vec[j] * scaleFactor);
+                    ptr_dst_vec[j] = GNAPluginNS::ConvertFloatToInt16(ptr_src_vec[j] * get_input_scale_factor());
                 }
             }
 
         } else {
             for (uint32_t i = 0; i < num_frames; i++) {
-                void *ptr_dst_vec = reinterpret_cast<uint8_t *>(dst) + i * num_vector_stride * sizeof(T);
-                const void *ptr_src_vec = reinterpret_cast<const uint8_t *>(src) + i * num_vector_elements * sizeof(U);
+                void *ptr_dst_vec = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(dst) + i * num_vector_stride * sizeof(T));
+                void *ptr_src_vec = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(src) + i * num_vector_elements * sizeof(U));
                 std::memset(ptr_dst_vec, 0, num_vector_stride * sizeof(T));
                 std::memcpy(ptr_dst_vec, ptr_src_vec, num_vector_elements * sizeof(T));
             }
         }
 
         for (uint32_t i = num_frames; i < num_group; i++) {
-            void *ptr_dst_vec = reinterpret_cast<uint8_t *>(dst) + i * num_vector_stride * sizeof(T);
+            void *ptr_dst_vec = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(dst) + i * num_vector_stride * sizeof(T));
             std::memset(ptr_dst_vec, 0, num_vector_stride * sizeof(T));
         }
     }
@@ -179,8 +178,7 @@ template <typename T, typename U>
 void GNAPlugin::copyInputDataWithSplit(T *const dst,
                 const U *src,
                 const GNASplitLayer& splitInfo,
-                size_t precision_size,
-                int idx) {
+                size_t precision_size) {
     if (!dst || !src) {
         return;
     }
@@ -197,7 +195,7 @@ void GNAPlugin::copyInputDataWithSplit(T *const dst,
         }
         for (uint32_t i = begin; i < end; ++i) {
             if (!std::is_same<T, U>::value) {
-                *(dst_ptr++) = GNAPluginNS::ConvertFloatToInt16(*(src_ptr++) * inputScaleFactors[idx]);
+                *(dst_ptr++) = GNAPluginNS::ConvertFloatToInt16(*(src_ptr++) * get_input_scale_factor());
             } else {
                 *(dst_ptr++) = *(src_ptr++);
             }
@@ -210,7 +208,7 @@ void GNAPlugin::copyInputDataWithSplit(T *const dst,
 }
 
 void GNAPlugin::ExportScores(void *ptr_dst,
-                  const void *ptr_src,
+                  void *ptr_src,
                   intel_dnn_orientation_t orientation,
                   uint32_t num_frames,
                   uint32_t num_group,
@@ -224,7 +222,7 @@ void GNAPlugin::ExportScores(void *ptr_dst,
     if (orientation == kDnnInterleavedOrientation) {
         if (num_bytes_per_element == 2) {
             int16_t *dst = reinterpret_cast<int16_t *>(ptr_dst);
-            const int16_t *src = reinterpret_cast<const int16_t *>(ptr_src);
+            int16_t *src = reinterpret_cast<int16_t *>(ptr_src);
             for (uint32_t i = 0; i < num_frames; i++) {
                 for (uint32_t j = 0; j < num_active_elements; j++) {
                     dst[i * num_vector_elements + j] = src[j * num_group + i];
@@ -235,7 +233,7 @@ void GNAPlugin::ExportScores(void *ptr_dst,
             }
         } else if (num_bytes_per_element == 4) {  // should work for both int and float
             int32_t *dst = reinterpret_cast<int32_t *>(ptr_dst);
-            const int8_t *src = reinterpret_cast<const int8_t*>(ptr_src);
+            int8_t *src = reinterpret_cast<int8_t*>(ptr_src);
             for (uint32_t i = 0; i < num_frames; i++) {
                 for (uint32_t j = 0; j < num_active_elements; j++) {
                     auto input_ptr = src + (j * num_group + i) * num_bytes_per_element_input;
@@ -243,11 +241,11 @@ void GNAPlugin::ExportScores(void *ptr_dst,
 
                     switch (num_bytes_per_element_input) {
                         case 2 : {
-                            *dst_ptr  = static_cast<int32_t>(*reinterpret_cast<const int16_t*>(input_ptr));
+                            *dst_ptr  = static_cast<int32_t>(*reinterpret_cast<int16_t*>(input_ptr));
                             break;
                         }
                         case 4 : {
-                            *dst_ptr  = *reinterpret_cast<const int32_t*>(input_ptr);
+                            *dst_ptr  = *reinterpret_cast<int32_t*>(input_ptr);
                             break;
                         }
                         default:
@@ -264,15 +262,15 @@ void GNAPlugin::ExportScores(void *ptr_dst,
     } else {
         if (num_bytes_per_element == 2) {
             for (uint32_t i = 0; i < num_frames; i++) {
-                auto ptr_dst_vec = reinterpret_cast<uint8_t *>(ptr_dst) + i * num_vector_elements * sizeof(int16_t);
-                auto ptr_src_vec = reinterpret_cast<const uint8_t *>(ptr_src) + i * num_vector_stride * sizeof(int16_t);
+                void *ptr_dst_vec = reinterpret_cast<void *> (reinterpret_cast<uint8_t *>(ptr_dst) + i * num_vector_elements * sizeof(int16_t));
+                void *ptr_src_vec = reinterpret_cast<void *> (reinterpret_cast<uint8_t *>(ptr_src) + i * num_vector_stride * sizeof(int16_t));
                 memset(ptr_dst_vec, 0, num_vector_elements * sizeof(int16_t));
                 memcpy(ptr_dst_vec, ptr_src_vec, num_active_elements * sizeof(int16_t));
             }
         } else if (num_bytes_per_element == 4) {  // should work for both int and float
             for (uint32_t i = 0; i < num_frames; i++) {
-                void *ptr_dst_vec = reinterpret_cast<uint8_t *>(ptr_dst) + i * num_vector_elements * sizeof(float);
-                const void *ptr_src_vec = reinterpret_cast<const uint8_t *>(ptr_src) + i * num_vector_stride * sizeof(float);
+                void *ptr_dst_vec = reinterpret_cast<void *> (reinterpret_cast<uint8_t *>(ptr_dst) + i * num_vector_elements * sizeof(float));
+                void *ptr_src_vec = reinterpret_cast<void *> (reinterpret_cast<uint8_t *>(ptr_src) + i * num_vector_stride * sizeof(float));
                 memset(ptr_dst_vec, 0, num_vector_elements * sizeof(float));
                 memcpy(ptr_dst_vec, ptr_src_vec, num_active_elements * sizeof(float));
             }
@@ -286,7 +284,6 @@ void GNAPlugin::ImportFrames(
                   void *ptr_dst,
                   const void *ptr_src,
                   Precision input_precision,
-                  float scaleFactor,
                   intel_dnn_orientation_t orientation,
                   uint32_t num_frames,
                   uint32_t num_group,
@@ -295,48 +292,48 @@ void GNAPlugin::ImportFrames(
     if (orientation == kDnnInterleavedOrientation) {
         // TODO : fix that as well
         if (input_precision == Precision::U8) {
-            auto src = reinterpret_cast<const uint8_t *>(ptr_src);
-            auto dst = reinterpret_cast<int16_t *>(ptr_dst);
-            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+            int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
+            uint8_t *src = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(ptr_src));
+            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
         } else if (input_precision.size() == 2) {
-            auto dst = reinterpret_cast<int16_t *>(ptr_dst);
-            auto src = reinterpret_cast<const int16_t *>(ptr_src);
-            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+            int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
+            int16_t *src = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_src));
+            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
         } else if (input_precision.size() == 4) {
             if (!gnadevice) {
-                auto dst = reinterpret_cast<float *>(ptr_dst);
-                auto src = reinterpret_cast<const float *>(ptr_src);
-                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+                float *dst = const_cast<float *>(reinterpret_cast<const float *>(ptr_dst));
+                float *src = const_cast<float *>(reinterpret_cast<const float *>(ptr_src));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
             } else {
-                auto dst = reinterpret_cast<int16_t *>(ptr_dst);
-                auto src = reinterpret_cast<const float *>(ptr_src);
-                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+                int16_t *dst = reinterpret_cast<int16_t *>(ptr_dst);
+                const float *src = reinterpret_cast<const float *>(ptr_src);
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
             }
         }
     } else {
         if (input_precision == Precision::U8) {
-            auto src = reinterpret_cast<const uint8_t *>(ptr_src);
+            uint8_t *src = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(ptr_src));
             if (!gnadevice) {
-                auto dst = reinterpret_cast<float *>(ptr_dst);
-                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+                float *dst = const_cast<float *>(reinterpret_cast<const float *>(ptr_dst));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
             } else {
-                auto dst = reinterpret_cast<int16_t *>(ptr_dst);
-                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+                int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
             }
 
         } else if (input_precision.size()== 2) {
-            auto dst = reinterpret_cast<int16_t *>(ptr_dst);
-            auto src = reinterpret_cast<const int16_t *>(ptr_src);
-            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+            int16_t *dst = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_dst));
+            int16_t *src = const_cast<int16_t *>(reinterpret_cast<const int16_t *>(ptr_src));
+            copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
         } else if (input_precision.size() == 4) {
             if (!gnadevice) {
-                auto dst = reinterpret_cast<float *>(ptr_dst);
-                auto src = reinterpret_cast<const float *>(ptr_src);
-                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+                float *dst = const_cast<float *>(reinterpret_cast<const float *>(ptr_dst));
+                float *src = const_cast<float *>(reinterpret_cast<const float *>(ptr_src));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
             } else {
-                auto dst = reinterpret_cast<uint16_t *>(ptr_dst);
-                auto src = reinterpret_cast<const float *>(ptr_src);
-                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation, scaleFactor);
+                uint16_t *dst = const_cast<uint16_t *>(reinterpret_cast<const uint16_t *>(ptr_dst));
+                float *src = const_cast<float *>(reinterpret_cast<const float *>(ptr_src));
+                copyInputData(dst, src, num_frames, num_group, num_vector_elements, num_vector_stride, orientation);
             }
         }
     }
@@ -1278,7 +1275,12 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         THROW_GNA_EXCEPTION << "Activation function type not yet supported: " << type;
     }
     auto activation_type = DnnActivation::fromType(it->second);
-    activation_type.negative_slope = (it->second == kActRelu) ? dynamic_cast<ReLULayer*>(layer.get())->negative_slope : 0.0f;
+    if (it->second == kActRelu) {
+        auto reluLayer = dynamic_cast<ReLULayer *>(layer.get());
+        activation_type.negative_slope = reluLayer != nullptr ? reluLayer->negative_slope : 0.0f;
+    } else {
+        activation_type.negative_slope = 0.0f;
+    }
 
     // TODO: need to take graph dependency instead of linear
     auto &prevComponent = dnnComponentsForLayer.back().second;
@@ -1507,6 +1509,10 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     return check_result;
 }
 
+float GNAPlugin::get_input_scale_factor() const {
+    return input_scale_factor.empty() ? 1.0 : input_scale_factor.begin()->second;
+}
+
 void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     //  Check the input network
     std::string error;
@@ -1542,12 +1548,12 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         {TargetDevice::eGNA, Precision::FP32, [&](InferenceEngine::ICNNNetwork &network) -> CNNNetworkPtr {
             if (gnaPrecision == Precision::I16) {
                 ModelQuantizer<QuantI16> q;
-                return q.quantize(network, run_passes, inputScaleFactors);
+                return q.quantize(network, run_passes, get_input_scale_factor());
             }
 
             if (gnaPrecision == Precision::I8) {
                 ModelQuantizer<QuantI8> q;
-                return q.quantize(network, run_passes, inputScaleFactors);
+                return q.quantize(network, run_passes, get_input_scale_factor());
             }
             THROW_GNA_EXCEPTION << "no mans land for GNA precision";
         }},
@@ -1648,20 +1654,23 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     for (auto layer = sortedNoMem.begin(); layer != sortedNoMem.end(); ++layer) {
         CreateLayerPrimitive(*layer);
     }
+    if (dnnComponentsForLayer.empty()) {
+        THROW_GNA_EXCEPTION << "No outputs found in dnn components structure";
+    }
+
     DnnComponentsForLayer::iterator output_component = std::find_if(dnnComponentsForLayer.begin(),
                                                         dnnComponentsForLayer.end(),
                                                         [&](const std::pair<std::string, intel_dnn_component_t>& v)
                                                         { return outputsDataMap.begin()->first == v.first; });
 
     if (output_component == dnnComponentsForLayer.end()) {
-        if (dnnComponentsForLayer.empty()) {
-            THROW_GNA_EXCEPTION << "No outputs found in internal structures";
-        }
         // likely layer is fused. Take last one
-        output_component = std::prev(dnnComponentsForLayer.end());
+        auto it = dnnComponentsForLayer.begin();
+        std::advance(it, dnnComponentsForLayer.size() - 1);
+        output_component = it;
         gnalog() << "Output layer "<< outputsDataMap.begin()->first
-                    << " has not been found in component list. Took  "
-                    << output_component->first << " instead \n" << std::flush;
+            << " has not been found in component list. Took  "
+            << output_component->first << " instead \n" << std::flush;
     }
     gnamem->bind_ptr(&ptr_outputs_global.front(), &output_component->second.ptr_outputs);
 
@@ -1774,6 +1783,10 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     orientation_out = output_component->second.orientation_out;
     num_bytes_per_output = output_component->second.num_bytes_per_output;
 
+    if (sortedNet.empty()) {
+        THROW_GNA_EXCEPTION << "Sorted network is empty";
+    }
+
     // find output layer
     auto output = std::find_if(sortedNet.begin(),
                                 sortedNet.end(),
@@ -1781,7 +1794,9 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
                                 { return outputsDataMap.begin()->first == v.get()->name; });
     if (output == sortedNet.end()) {
         // likely layer is fused. Take last one
-        output = std::prev(sortedNet.end());
+        auto it = sortedNet.begin();
+        std::advance(it, sortedNet.size() - 1);
+        output = it;
     }
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(*output);
     output_scale_factor = quantized != nullptr ? quantized->_dst_quant.scale : 1.0f;
@@ -1805,7 +1820,7 @@ void GNAPlugin::DumpXNNToFile() const {
         }
         auto dump = gnadevice->dumpXnn(&std::get<0>(nnets.front())->obj, ptr_active_indices, num_active_indices);
         dump.header.rw_region_size = gnamem->getRWBytes();
-        dump.header.input_scaling_factor = inputScaleFactors.front();
+        dump.header.input_scaling_factor = get_input_scale_factor();
         dump.header.output_scaling_factor = output_scale_factor;
         std::ofstream dumpStream(dumpXNNPath, std::ios::out | std::ios::binary);
         dumpStream.write(reinterpret_cast<char*>(&dump.header), sizeof(intel_gna_model_header));
@@ -1897,13 +1912,11 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
         ImportFrames(get_ptr_inputs_global(input.first)[idx],
                      input.second->cbuffer().as<float *>(),
                      input.second->precision(),
-                     inputScaleFactors.size() <= idx ? 1.0 : inputScaleFactors[idx],
                      orientation_in[input.first],
                      dims[dims.size() - 1],
                      is2D ? dims[1] : dims[dims.size() - 1],
                      is2D ? dims[0] : dims[0] * dims[1] * dims[2],
                      is2D ? dims[0] : dims[0] * dims[1] * dims[2]);
-
         bool isOneChannel = input.second->getTensorDesc().getDims()[1] == 1;
         if (((inputLayout == Layout::NC || inputLayout == Layout::NCHW)
             != (orientation_in[input.first] == kDnnInterleavedOrientation))
@@ -2138,7 +2151,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
                                                  Layout::NC);
 
     output_scale_factor = header.output.scaleFactor;
-    inputScaleFactors.push_back(header.input.scaleFactor);
+    input_scale_factor["input"] = header.input.scaleFactor;
 
     num_rotate_rows = header.nRotateRows;
     num_rotate_columns = header.nRotateColumns;
@@ -2179,7 +2192,7 @@ void GNAPlugin::Export(const std::string &fileName) {
     }
 
     auto serial = GNAModelSerial(&std::get<0>(nnets.front())->obj,
-                   {inputScaleFactors.front(),
+                   {get_input_scale_factor(),
                     ptr_inputs_global_storage.front()[0],
                     2,
                     static_cast<uint32_t>(InferenceEngine::details::product(inputsDataMap.begin()->second->getDims()))},
@@ -2257,24 +2270,20 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
     auto & log = gnalog();
 
     if_start(GNA_CONFIG_KEY(SCALE_FACTOR), [&, this] {
-        uint64_t scaleForInput = std::stoul(key, NULL, 10);
-        if (scaleForInput > 10) {
-            THROW_GNA_EXCEPTION << "input scale factor with index(" << key << ") unsupported";
+        // only identical scale factors supported so far
+        auto ref = input_scale_factor.size() ? input_scale_factor.begin()->second : 1.0;
+        input_scale_factor[key] = std::stod(value);
+        if (ref != 1.0 && !fp32eq(input_scale_factor[key], ref)) {
+            std::string message = "only identical input scale factors supported, but provided: "
+                    + std::to_string(ref) + " and " + std::to_string(input_scale_factor[key]);
+            log << "only identical input scale factors supported, but provided: " << ref <<" and " << input_scale_factor[key];
+            THROW_GNA_EXCEPTION << "only identical input scale factors supported, but provided: " << ref <<" and " << input_scale_factor[key];
         }
-        auto scaleFactor = std::stod(value);
-        if (fp32eq(scaleFactor, 0.0f)) {
-            THROW_GNA_EXCEPTION << "input scale factor of 0.0f not supported";
-        }
-        // not appeared scale factors are to be 1.0f
-        if (inputScaleFactors.size() <= scaleForInput) {
-            inputScaleFactors.resize(scaleForInput + 1, 1.f);
-        }
-        inputScaleFactors[scaleForInput] = std::stod(value);
     });
 
-    if (inputScaleFactors.empty()) {
+    if (input_scale_factor.empty()) {
         if_set(GNA_CONFIG_KEY(SCALE_FACTOR), [&] {
-            inputScaleFactors.push_back(std::stod(value));
+            input_scale_factor["placeHolder"] = std::stod(value);
         });
     }
 
@@ -2466,36 +2475,38 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, voi
                                             [&name](GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) {
                                                 return item.name == name;
                                             });
-                    // reserve full size for concat
-                    if (!concatLayerInfoItem.output_allocation_flag) {
-                        // check if this concat is being included by other one
-                        // by going thru each concat and checking inputs
-                        auto included =
-                            std::find_if(concat_connection.begin(),
-                                           concat_connection.end(),
-                               [&concatLayerInfo]
-                                    (const std::pair<std::string, GNAPlugin::GNAConcatLayer> &concatItem) -> bool {
-                                        auto it = std::find_if(concatItem.second.concatInputLayers.begin(),
-                                                        concatItem.second.concatInputLayers.end(),
-                                                        [&concatLayerInfo]
-                                                            (const GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) -> bool {
-                                                                            return item.name == concatLayerInfo->first;
-                                                            });
-                                        return it != concatItem.second.concatInputLayers.end();
-                                    });
-                        if (included == concat_connection.end()) {
-                            gnamem->reserve_ptr(&concatLayerInfoItem.gna_ptr, ALIGN64(concatLayerInfoItem.reserved_size));
+                    if (it != concatLayerInfoItem.concatInputLayers.end()) {
+                        // reserve full size for concat
+                        if (!concatLayerInfoItem.output_allocation_flag) {
+                            // check if this concat is being included by other one
+                            // by going thru each concat and checking inputs
+                            auto included =
+                                    std::find_if(concat_connection.begin(),
+                                                 concat_connection.end(),
+                                                 [&concatLayerInfo]
+                                                         (const std::pair<std::string, GNAPlugin::GNAConcatLayer> &concatItem) -> bool {
+                                                     auto it = std::find_if(concatItem.second.concatInputLayers.begin(),
+                                                                            concatItem.second.concatInputLayers.end(),
+                                                                            [&concatLayerInfo]
+                                                                                    (const GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) -> bool {
+                                                                                return item.name == concatLayerInfo->first;
+                                                                            });
+                                                     return it != concatItem.second.concatInputLayers.end();
+                                                 });
+                            if (included == concat_connection.end()) {
+                                gnamem->reserve_ptr(&concatLayerInfoItem.gna_ptr, ALIGN64(concatLayerInfoItem.reserved_size));
 
-                            for (auto && inputLayer : concatLayerInfoItem.concatInputLayers) {
-                                if ( InferenceEngine::details::CaselessEq<std::string>()
-                                                                    (inputLayer.name, "input") ) {
-                                    bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
+                                for (auto &&inputLayer : concatLayerInfoItem.concatInputLayers) {
+                                    if (InferenceEngine::details::CaselessEq<std::string>()
+                                            (inputLayer.name, "input")) {
+                                        bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
+                                    }
                                 }
                             }
+                            concatLayerInfo->second.output_allocation_flag = true;
                         }
-                        concatLayerInfo->second.output_allocation_flag = true;
+                        gnamem->bind_ptr(ptr, &concatLayerInfoItem.gna_ptr, it->offset);
                     }
-                    gnamem->bind_ptr(ptr, &concatLayerInfoItem.gna_ptr, it->offset);
                 } else {
                     // error
                 }

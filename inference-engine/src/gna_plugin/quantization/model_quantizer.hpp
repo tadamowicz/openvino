@@ -20,20 +20,11 @@ template<class T>
 class ModelQuantizer {
  public:
     CNNNetworkPtr quantize(InferenceEngine::ICNNNetwork &model, float scaleFactor) const {
-        return quantize(model, [](InferenceEngine::CNNNetPtr &){}, std::vector<float>({scaleFactor}));
-    }
-
-    template <class PreQuantisationCb>
-    CNNNetworkPtr quantize(InferenceEngine::ICNNNetwork &model, const PreQuantisationCb &cb, float scaleFactor) const {
-        return quantize(model, cb, std::vector<float>({scaleFactor}));
-    }
-
-    CNNNetworkPtr quantize(InferenceEngine::ICNNNetwork &model, std::vector<float> scaleFactor) const {
         return quantize(model, [](InferenceEngine::CNNNetPtr &){}, scaleFactor);
     }
 
     template <class PreQuantisationCb>
-    CNNNetworkPtr quantize(InferenceEngine::ICNNNetwork &model, const PreQuantisationCb &cb, std::vector<float> scaleFactor) const {
+    CNNNetworkPtr quantize(InferenceEngine::ICNNNetwork &model, const PreQuantisationCb &cb, float scaleFactor) const {
         auto visitor = [&](InferenceEngine::CNNLayerPtr lp) {
             return InferenceEngine::injectData<QuantizedLayerParams>(lp);
         };
@@ -43,37 +34,23 @@ class ModelQuantizer {
         // one of solution is to create not copyNet overloads, that accepts 2 functors, one for layer copy
         // and another one for net copy
         auto rawNet = dynamic_cast<InferenceEngine::details::CNNNetworkImpl *>(copiedNet.get());
-        rawNet->setPrecision(T::mandatory().getNetPrecision());
+        if (rawNet != nullptr) {
+            rawNet->setPrecision(T::mandatory().getNetPrecision());
+        }
 
         // allow client code to access copied topology, to avoid copies if user would like to chain quantisation with
         // another preprocessing
         cb(copiedNet);
 
-        if (scaleFactor.empty()) {
-            THROW_GNA_EXCEPTION << "Scale factor is empty";
-        }
-
-        LayersQuantizer<T> lc(*scaleFactor.begin());
+        LayersQuantizer<T> lc(scaleFactor);
         auto sortedNewNet = InferenceEngine::details::CNNNetSortTopologically(*copiedNet.get());
         gnalog() << "Sorted layers: " << std::endl;
         for (auto &&layer : sortedNewNet) {
             gnalog() << layer->name << std::endl;
         }
-        /// filling scale factors for input layers, memory layers will have scaleFactor of 1.0 by default
-        InferenceEngine::InputsDataMap dm;
-        copiedNet->getInputsInfo(dm);
-        int scaleIndex = 0;
-        for (auto &&inputData : dm) {
-            auto inputLayer = inputData.second->getInputData()->creatorLayer.lock();
-            auto quantData = InferenceEngine::getInjectedData<QuantizedLayerParams>(inputLayer);
-            if (scaleFactor.size() <= scaleIndex) {
-                THROW_GNA_EXCEPTION << "Index of scale factor element is incorrect";
-            }
-            quantData->_src_quant.scale = scaleFactor[scaleIndex];
-            scaleIndex++;
-        }
 
-        propagateScaleFactor(sortedNewNet, T::mandatory().getWeightsPrecision().size());
+        // weights scale is a hint, not all weightable layers preserve it in all possible precisions
+        propagateScaleFactor(sortedNewNet, T::mandatory().getWeightsPrecision().size(), scaleFactor);
 
         // sorted order gives possibility for propagate quantisation along depended layers
         for (auto &&layer : sortedNewNet) {
@@ -84,8 +61,8 @@ class ModelQuantizer {
     }
 
  private :
-    void propagateScaleFactor(std::vector<InferenceEngine::CNNLayerPtr> & net, int weightsBytesSize) const {
-        ScaleFactorCalculator sf(net, weightsBytesSize);
+    void propagateScaleFactor(std::vector<InferenceEngine::CNNLayerPtr> & net, int weightsBytesSize, float scaleFactor) const {
+        ScaleFactorCalculator sf(net, weightsBytesSize, scaleFactor);
 
         while (!sf.allLayersProcessed()) {
             for (auto &&layer : sf.getStartLayers()) {

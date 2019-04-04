@@ -54,8 +54,12 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     std::unordered_map<std::string, intel_dnn_orientation_t> orientation_in;
     intel_dnn_orientation_t orientation_out = kDnnUnknownOrientation;
 
-    /// order of scale factors matches inputs order in original topology
-    std::vector<float> inputScaleFactors;
+    /**
+     * temporary solution to support multiple scale factors
+     * @return
+     */
+    float get_input_scale_factor() const;
+    std::unordered_map<std::string, double> input_scale_factor;
 
     double output_scale_factor = 1.0;
     uint32_t num_rotate_rows = 0;
@@ -63,7 +67,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
 
     uint32_t num_feature_maps = 1;
-    uint32_t num_memory_bytes;
+    uint32_t num_memory_bytes = 0;
 
     std::unordered_map<std::string, std::list<std::vector<void *>>::iterator> ptr_inputs_global_id;
     std::list<std::vector<void *>> ptr_inputs_global_storage;
@@ -75,7 +79,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t *ptr_active_indices = NULL;
     uint32_t num_active_indices = 0;
     uint32_t num_group_in = 0;
-    uint32_t num_bytes_weight;
+    uint32_t num_bytes_weight = 0;
     uint32_t num_bytes_per_output = 0;
 
     bool use_dynamic_quantization = false;
@@ -415,7 +419,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void ImportFrames(void *ptr_dst,
                      const void *ptr_src,
                      InferenceEngine::Precision input_precision,
-                     float scaleFactor,
                      intel_dnn_orientation_t orientation,
                      uint32_t num_frames,
                      uint32_t num_group,
@@ -423,7 +426,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                      uint32_t num_vector_stride);
 
     void ExportScores(void *ptr_dst,
-                     const void *ptr_src,
+                     void *ptr_src,
                      intel_dnn_orientation_t orientation,
                      uint32_t num_frames,
                      uint32_t num_group,
@@ -453,15 +456,13 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                     uint32_t num_group,
                     uint32_t num_vector_elements,
                     uint32_t num_vector_stride,
-                    intel_dnn_orientation_t orientation,
-                    float scaleFactor);
+                    intel_dnn_orientation_t orientation);
 
     template <typename T, typename U>
     void copyInputDataWithSplit(T *const dst,
                     const U *src,
                     const GNASplitLayer& splitInfo,
-                    size_t precision_size,
-                    int idx = 0);
+                    size_t precision_size);
     /**
      * @brief GNA affine layers are always have activation atached, while IR not
      */
