@@ -2085,6 +2085,10 @@ std::vector<InferenceEngine::MemoryStateInternal::Ptr>  GNAPlugin::QueryState() 
     return {std::make_shared<GNAMemoryState>(shared_from_this())};
 }
 
+std::string GNAPlugin::GetName() const noexcept {
+    return "GNA";
+}
+
 InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::string &modelFileName) {
     // no need to return anything dueto weird design of internal base classes
     std::fstream inputStream(modelFileName, ios_base::in | ios_base::binary);
