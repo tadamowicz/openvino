@@ -190,7 +190,7 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
                                 continue;
                             } else if (info.has16BOutput() && info.isActivation()) {
                                 auto newOutputScale = quantParams->_dst_quant.scale / maxValue;
-                                if (newOutputScale > std::numeric_limits<int16_t>::max() / 2) {
+                                if (newOutputScale > static_cast<float>(std::numeric_limits<int16_t>::max()) / 2) {
                                     break;
                                 }
                                 auto quantDataForActivation = InferenceEngine::getInjectedData<QuantizedLayerParams>(*in);
@@ -411,7 +411,9 @@ class ScaleFactorCalculator {
             }
             return ptr == cnnLayer.get();
         });
-        idx++;
+        if (idx != net.end()) {
+            idx++;
+        }
         needRestart = true;
         return true;
     }
