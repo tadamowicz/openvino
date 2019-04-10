@@ -126,6 +126,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      */
     GNAPlugin() = default;
 
+    std::string GetName() const noexcept override;
+
     void LoadNetwork(InferenceEngine::ICNNNetwork &network) override;
     using InferenceEngine::IInferencePluginInternal::Infer;
 

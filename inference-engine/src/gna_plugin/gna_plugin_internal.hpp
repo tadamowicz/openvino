@@ -30,6 +30,11 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
         return make_executable_network(std::make_shared<GNAExecutableNetwork>(modelFileName, config));
     }
 
+    std::string GetName() const noexcept override {
+        auto plg = std::make_shared<GNAPlugin>();
+        return plg->GetName();
+    }
+
     /**
      * @depricated Use the version with config parameter
      */
