@@ -2100,7 +2100,11 @@ std::vector<InferenceEngine::MemoryStateInternal::Ptr>  GNAPlugin::QueryState() 
 }
 
 std::string GNAPlugin::GetName() const noexcept {
-    return "GNA";
+    return _pluginName;
+}
+
+void GNAPlugin::SetName(const std::string & pluginName) noexcept {
+    _pluginName = pluginName;
 }
 
 InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::string &modelFileName) {

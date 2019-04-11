@@ -43,6 +43,7 @@ int16_t ConvertFloatToInt16(float src);
 
 class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::enable_shared_from_this<GNAPlugin> {
  protected:
+    std::string _pluginName = "GNA";
     AmIntelDnn dnn;
     using dnn_ptr = std::shared_ptr<CPPWrapper<intel_nnet_type_t>>;
 
@@ -127,6 +128,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     GNAPlugin() = default;
 
     std::string GetName() const noexcept override;
+    void SetName(const std::string & pluginName) noexcept override;
 
     void LoadNetwork(InferenceEngine::ICNNNetwork &network) override;
     using InferenceEngine::IInferencePluginInternal::Infer;
