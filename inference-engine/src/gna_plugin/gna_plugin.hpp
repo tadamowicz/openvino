@@ -142,6 +142,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                      const std::map<std::string, std::string> &config) override { THROW_GNA_EXCEPTION << "Not implemented"; }
     void Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob &result) override;
     void SetLogCallback(InferenceEngine::IErrorListener &listener) override {};
+    void SetCore(InferenceEngine::ICore*) noexcept override {}
+    const InferenceEngine::ICore* GetCore() const noexcept override {return nullptr;}
     void Reset();
     /**
      * @deprecated Use the version with config parameter
