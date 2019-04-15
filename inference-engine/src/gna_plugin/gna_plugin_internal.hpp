@@ -15,7 +15,7 @@ namespace GNAPluginNS {
 
 class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
  public:
-    InferenceEngine::ExecutableNetworkInternal::Ptr LoadExeNetworkImpl(
+    InferenceEngine::ExecutableNetworkInternal::Ptr LoadExeNetworkImpl(const InferenceEngine::ICore * core,
                                                 InferenceEngine::ICNNNetwork &network,
                                                 const std::map<std::string, std::string> &config) override {
         return std::make_shared<GNAExecutableNetwork>(network, config);
