@@ -1422,9 +1422,18 @@ void GNAPlugin::CreateLayerPrimitive(CNNLayerPtr layer) {
     }
 }
 
-
 GNAPlugin::GNAPlugin(const std::map<std::string, std::string>& configMap) {
     SetConfig(configMap);
+}
+
+InferenceEngine::Parameter GNAPlugin::GetConfig(const std::string& name,
+                                                const std::map<std::string, InferenceEngine::Parameter> & options) const {
+    THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
+}
+
+InferenceEngine::Parameter GNAPlugin::GetMetric(const std::string& name,
+                                                const std::map<std::string, InferenceEngine::Parameter> & options) const {
+    THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
 }
 
 GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string &str) const {
