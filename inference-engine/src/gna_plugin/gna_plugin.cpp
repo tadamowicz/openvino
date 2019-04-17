@@ -2429,6 +2429,7 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                                            [&](CNNLayerPtr const layer) {
                                                 if (GNAPluginNS::GNAPlugin::LayerTypeFromStr(layer->type) != NO_TYPE) {
                                                     res.supportedLayersMap.insert({ layer->name, GetName() });
+                                                    res.supportedLayers.insert(layer->name);
                                                 }
                                             }, false);
     }
