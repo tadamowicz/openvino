@@ -156,6 +156,11 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t QueueInference(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result);
     void Wait(uint32_t idx = 0);
 
+    InferenceEngine::Parameter GetConfig(const std::string& name,
+                                         const std::map<std::string, InferenceEngine::Parameter> & options) const override;
+    InferenceEngine::Parameter GetMetric(const std::string& name,
+                                         const std::map<std::string, InferenceEngine::Parameter> & options) const override;
+
     /**
      *
      * @param sync - points to gna sync point
