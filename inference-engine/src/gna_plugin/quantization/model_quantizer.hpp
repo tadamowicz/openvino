@@ -10,6 +10,7 @@
 #include "details/ie_cnn_network_tools.h"
 #include "layer_quantizer.hpp"
 #include "scale_factor_calc.hpp"
+#include "weights_converter.hpp"
 
 namespace GNAPluginNS {
 /**
@@ -35,7 +36,9 @@ class ModelQuantizer {
     template <class PreQuantisationCb>
     CNNNetworkPtr quantize(InferenceEngine::ICNNNetwork &model, const PreQuantisationCb &cb, std::vector<float> scaleFactor) const {
         auto visitor = [&](InferenceEngine::CNNLayerPtr lp) {
-            return InferenceEngine::injectData<QuantizedLayerParams>(lp);
+            auto newLayer = InferenceEngine::injectData<QuantizedLayerParams>(lp);
+            transformLayer(newLayer, WeightsConverter());
+            return newLayer;
         };
         auto copiedNet = InferenceEngine::CNNNetCopy(model, visitor);
 

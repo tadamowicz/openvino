@@ -1475,14 +1475,16 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     network.getInputsInfo(inputs);
     auto network_input_precision = inputs.begin()->second->getPrecision();
     auto batch_size = network.getBatchSize();
-    if (network_precision != Precision::FP32) {
-        errMessage = "The plugin does not support networks with " + std::string(network_precision.name()) + " format.\n";
+    if (network_precision != Precision::FP32 && network_precision != Precision::FP16) {
+        errMessage = "The plugin does not support networks with " + std::string(network_precision.name()) + " format. Supported network precisions are FP32, "
+                                                                                                            "FP16\n";
         return false;
     }
     if (network_input_precision != Precision::FP32 &&
         network_input_precision != Precision::I16 &&
         network_input_precision != Precision::U8) {
-        errMessage = "The plugin does not support input precision with " + std::string(network_input_precision.name()) + " format.\n";
+        errMessage = "The plugin does not support input precision with " + std::string(network_input_precision.name()) + " format. Supported  input precisions "
+                     "FP32, I16, U8\n";
         return false;
     }
     if (specifiedDevice != InferenceEngine::TargetDevice::eCPU &&
@@ -1508,7 +1510,7 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
                                            secondLayers.begin()->second,
                                            [&](const CNNLayerPtr layer) {
                                                 if (LayerTypeFromStr(layer->type) == NO_TYPE) {
-                                                    errMessage = "Layer is unsupported by GNA: " + layer->name + ":" + layer->type + "\n";
+                                                    errMessage = "The plugin does not support layer: " + layer->name + ":" + layer->type + "\n";
                                                     check_result =  false;
                                                 }
                                                 if (batch_size != 1 && LayerInfo::isBatchSizeConstrained(layer->type)) {
@@ -1553,7 +1555,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     };
 
     Config supported = Config({
-        {TargetDevice::eGNA, Precision::FP32, [&](InferenceEngine::ICNNNetwork &network) -> CNNNetworkPtr {
+        {TargetDevice::eGNA, {Precision::FP32, Precision::FP16}, [&](InferenceEngine::ICNNNetwork &network) -> CNNNetworkPtr {
             if (gnaPrecision == Precision::I16) {
                 ModelQuantizer<QuantI16> q;
                 return q.quantize(network, run_passes, inputScaleFactors);
@@ -1566,13 +1568,14 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
             THROW_GNA_EXCEPTION << "no mans land for GNA precision";
         }},
         // TODO: need to have advanced precision matcher based on layers/biases
-        {TargetDevice::eGNA, Precision::MIXED},
-        {TargetDevice::eGNA, Precision::I16},
-        {TargetDevice::eCPU, Precision::FP32
+        {TargetDevice::eGNA, {Precision::MIXED}},
+        {TargetDevice::eGNA, {Precision::I16}},
+        {TargetDevice::eCPU, {Precision::FP32}
 #define EMULATE_GNA_API_LAYERS
 #ifdef  EMULATE_GNA_API_LAYERS
             , [&](InferenceEngine::ICNNNetwork & network) {
             auto visitor = [&](InferenceEngine::CNNLayerPtr lp) {
+                transformLayer(lp, WeightsConverter());
                 return lp;
             };
             auto copiedNet = InferenceEngine::CNNNetCopy(network, visitor);

@@ -15,7 +15,6 @@
 #include "gna_plugin.hpp"
 #include "gna_layer_info.hpp"
 
-
 using namespace InferenceEngine;
 using namespace InferenceEngine::details;
 using namespace GNAPluginNS;
