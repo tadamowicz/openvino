@@ -319,8 +319,8 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             }
 
             double weights_reducer = 1.0;
-            if (dynamic_cast<ConvolutionLayer*>(wl)) {
-                auto conv = dynamic_cast<ConvolutionLayer*>(wl);
+            auto conv = dynamic_cast<ConvolutionLayer*>(wl);
+            if (conv) {
                 auto dims = conv->insData.front().lock()->getDims();
 
                 weights_reducer = MAX_VAL_2B_FEAT * scaleRange * dims[1] / std::numeric_limits<int32_t>::max();
