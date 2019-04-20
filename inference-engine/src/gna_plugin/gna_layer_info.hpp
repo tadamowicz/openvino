@@ -181,8 +181,8 @@ class LayerInfo {
             size_t size_without_padding = 0;
             auto inputs = layer->insData.begin()->lock();
             if (inputs) {
-                size_without_padding = InferenceEngine::details::product(begin(inputs->dims),
-                                                                   end(inputs->dims));
+                size_without_padding = InferenceEngine::details::product(begin(inputs->getTensorDesc().getDims()),
+                                                                   end(inputs->getTensorDesc().getDims()));
             }
             return ALIGN(size_without_padding, 8) - size_without_padding;
         }

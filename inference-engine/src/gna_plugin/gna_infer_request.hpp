@@ -34,7 +34,7 @@ class GNAInferRequest : public InferenceEngine::AsyncInferRequestInternal {
         _outputs[_networkOutputs.begin()->first] = plg->GetOutputBlob(networkOutputs.begin()->second->getPrecision());
         for (auto input : _networkInputs) {
             _inputs[input.first] =
-                plg->GetInputBlob(input.first, networkInputs.begin()->second->getInputPrecision());
+                plg->GetInputBlob(input.first, networkInputs.begin()->second->getPrecision());
         }
     }
     /**

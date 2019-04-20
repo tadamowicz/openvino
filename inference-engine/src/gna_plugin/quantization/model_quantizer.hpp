@@ -66,7 +66,7 @@ class ModelQuantizer {
         copiedNet->getInputsInfo(dm);
         int scaleIndex = 0;
         for (auto &&inputData : dm) {
-            auto inputLayer = inputData.second->getInputData()->creatorLayer.lock();
+            auto inputLayer = inputData.second->getInputData()->getCreatorLayer().lock();
             auto quantData = InferenceEngine::getInjectedData<QuantizedLayerParams>(inputLayer);
             if (scaleFactor.size() <= scaleIndex) {
                 THROW_GNA_EXCEPTION << "Index of scale factor element is incorrect";

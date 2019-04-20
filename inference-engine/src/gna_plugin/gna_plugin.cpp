@@ -1473,7 +1473,7 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     auto specifiedDevice = network.getTargetDevice();
     auto network_precision = network.getPrecision();
     network.getInputsInfo(inputs);
-    auto network_input_precision = inputs.begin()->second->getInputPrecision();
+    auto network_input_precision = inputs.begin()->second->getPrecision();
     auto batch_size = network.getBatchSize();
     if (network_precision != Precision::FP32) {
         errMessage = "The plugin does not support networks with " + std::string(network_precision.name()) + " format.\n";
