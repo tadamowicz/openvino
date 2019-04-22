@@ -2408,7 +2408,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
 }
 
 /**
- * @depricated Use the version with config parameter
+ * @deprecated Use the version with config parameter
  */
 void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                              InferenceEngine::QueryNetworkResult& res) const {
@@ -2438,7 +2438,9 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                                            [&](CNNLayerPtr const layer) {
                                                 if (GNAPluginNS::GNAPlugin::LayerTypeFromStr(layer->type) != NO_TYPE) {
                                                     res.supportedLayersMap.insert({ layer->name, GetName() });
+                                                    IE_SUPPRESS_DEPRECATED_START
                                                     res.supportedLayers.insert(layer->name);
+                                                    IE_SUPPRESS_DEPRECATED_END
                                                 }
                                             }, false);
     }

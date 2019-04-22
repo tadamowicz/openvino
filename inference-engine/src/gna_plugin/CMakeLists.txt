@@ -3,6 +3,8 @@
 
 set(TARGET_NAME "GNAPlugin")
 
+disable_deprecated_warnings()
+
 file(GLOB_RECURSE SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 

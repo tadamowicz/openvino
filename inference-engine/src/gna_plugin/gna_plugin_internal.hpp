@@ -36,7 +36,7 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
     }
 
     /**
-     * @depricated Use the version with config parameter
+     * @deprecated Use the version with config parameter
      */
     void QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                       InferenceEngine::QueryNetworkResult& res) const override {
