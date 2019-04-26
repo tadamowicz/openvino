@@ -69,24 +69,23 @@ class LayerInfo {
         return activations.find(layer->type) != activations.end();
     }
     bool isRelu() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "relu");
+        return isOfType("relu");
     }
     bool isConvolution() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "convolution");
+        return isOfType("convolution");
     }
     bool isPower() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "power");
+        return isOfType("power");
     }
     bool has32BInput() const noexcept {
         IS_VALID();
         return isActivation() || isPooling();
     }
     bool isInput() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "input");
+        return isOfType("input");
+    }
+    bool isConst() const noexcept {
+        return isOfType("const");
     }
     bool isScaleShift() const noexcept {
         IS_VALID();
@@ -114,36 +113,28 @@ class LayerInfo {
             InferenceEngine::EltwiseLayer::Prod;
     }
     bool isIdentity() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "identity");
+        return isOfType("identity");
     }
     bool isFullyConnected() const noexcept {
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "FullyConnected") ||
-                InferenceEngine::details::CaselessEq<std::string>()(layer->type, "InnerProduct");
+        return isOfType("FullyConnected") || isOfType("InnerProduct");
     }
     bool isSplit() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "split");
+        return isOfType("split");
     }
     bool isSlice() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "slice");
+        return isOfType("slice");
     }
     bool isConcat() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "concat");
+        return isOfType("concat");
     }
     bool isReshape() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "reshape");
+        return isOfType("reshape");
     }
     bool isPermute() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "permute");
+        return isOfType("permute");
     }
     bool isPooling() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "Pooling");
+        return isOfType("pooling");
     }
     bool isMaxPooling() const noexcept {
         IS_VALID();
@@ -151,12 +142,10 @@ class LayerInfo {
         return as<const InferenceEngine::PoolingLayer*>()->_type == InferenceEngine::PoolingLayer::MAX;
     }
     bool isMemory() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "memory");
+        return isOfType("memory");
     }
     bool isCrop() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "crop");
+        return isOfType("crop");
     }
     bool isCropAffined() const noexcept {
         auto cropLayer = dynamic_cast<InferenceEngine::CropLayer *> (layer);
@@ -169,8 +158,7 @@ class LayerInfo {
         return false;
     }
     bool isCopy() const noexcept {
-        IS_VALID();
-        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, "copy");
+        return isOfType("copy");
     }
     size_t paddingSize() const noexcept {
         static InferenceEngine::details::caseless_set<std::string> layersWithPossiblePadding = {"FullyConnected",
@@ -206,6 +194,11 @@ class LayerInfo {
         return std::shared_ptr<InferenceEngine::CNNLayer>(layer, [] (InferenceEngine::CNNLayer * p) {});
     }
 
+ protected:
+    bool isOfType(const std::string & type) const noexcept {
+        IS_VALID();
+        return InferenceEngine::details::CaselessEq<std::string>()(layer->type, type);
+    }
     #undef IS_VALID
 };
 

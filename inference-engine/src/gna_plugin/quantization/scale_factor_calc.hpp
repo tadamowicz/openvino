@@ -257,6 +257,18 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
             sourceQuantParams = quantParams1;
         }
 
+        // possible case when some of the concat inputs are free to select scale ex: const->concat<-affine
+        if (quantParams1->_dst_quant.scale == 1.0) {
+            quantParams1->_weights_quant = quantParams0->_dst_quant;
+            quantParams1->_dst_quant     = quantParams0->_dst_quant;
+            sourceQuantParams = quantParams0;
+        }
+        if (quantParams0->_dst_quant.scale == 1.0) {
+            quantParams0->_weights_quant = quantParams1->_dst_quant;
+            quantParams0->_dst_quant     = quantParams1->_dst_quant;
+            sourceQuantParams = quantParams1;
+        }
+
         if (!sourceQuantParams) {
             THROW_GNA_EXCEPTION << "Concat quantization for this case need to be implemented!!! \n";
         }

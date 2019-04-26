@@ -440,6 +440,25 @@ void GNAPlugin::DiagonalPrimitive(InferenceEngine::CNNLayerPtr layer) {
     AffinePrimitive(layer, true);
 }
 
+void  GNAPlugin::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(constLayer);
+
+    if (constLayer->blobs.find("custom") == constLayer->blobs.end()) {
+        THROW_GNA_EXCEPTION << "const layer: " << constLayer->name << "doesn't have custom in blobs section";
+    }
+    auto constBlob = constLayer->blobs["custom"];
+
+    void * ptr_for_const_blob = &ptr_for_const_blob;
+    connectOutput(constLayer, ptr_for_const_blob, constBlob->size());
+
+    // TODO: segment type for bind, bind initializer not used - need refactor to separate bind and allocation requests
+    // dont see practical use case when bind storage type need to be different that allocation type
+    gnamem->readonly().bind_initializer(ptr_for_const_blob, [constBlob](void * data, size_t size) {
+        memcpy(data, constBlob->buffer(), constBlob->byteSize());
+    });
+}
+
+
 void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto &convolution = dynamic_cast<ConvolutionLayer &>(*layer.get());
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
@@ -460,14 +479,14 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     void *ptr_weights;
     void *ptr_biases;
 
-    // TODO: questionable why for biases that are no in IR we inventing precision
+    // TODO: questionable why for biases that are not in IR we inventing precision
     auto biasPrecision = convolution._biases ? convolution._biases->precision() : outputs->precision;
 
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << dnnComponentsForLayer.size() - 1 << "\n";
+    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " convolution_" << dnnComponentsForLayer.size() - 1 << "\n";
 #endif
     auto num_input_padding = ALIGN(num_feature_maps * num_feature_map_columns * num_feature_map_rows, 8)
                                                         -  num_feature_maps * num_feature_map_columns * num_feature_map_rows;
@@ -607,7 +626,7 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             true);
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << "diagonal_"<< dnnComponentsForLayer.size() - 1 << "\n";
+    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << "\n";
 #endif
 
     size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
@@ -930,7 +949,7 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
                             true);
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << "diagonal_"<< dnnComponentsForLayer.size() - 1 << "\n";
+    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << "\n";
 #endif
 
     size_t num_data_bytes_out =
@@ -1009,7 +1028,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     auto &currentComponent = dnnComponentsForLayer.back().second;
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << (isDiag ? "diagonal_" : "affine_") << dnnComponentsForLayer.size() - 1 << "\n";
+    cout << "IR layer : " << std::left << std::setw(20) << layer->name << (isDiag ? " diagonal_" : " affine_") << dnnComponentsForLayer.size() - 1 << "\n";
 #endif
 
     dnn.InitAffineComponent(currentComponent,
@@ -1368,7 +1387,7 @@ case name:\
         GET_ACTIVATION_NAME(kActKaldiLstmClipping);
         GET_ACTIVATION_NAME(kActIdentity);
     }
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name <<  actName << "_" << dnnComponentsForLayer.size() - 1 <<"\n";
+    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " " << actName << "_" << dnnComponentsForLayer.size() - 1 <<"\n";
 #endif
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
@@ -1416,8 +1435,8 @@ void GNAPlugin::CreateLayerPrimitive(CNNLayerPtr layer) {
         {{"FullyConnected", "InnerProduct"}, CREATE(AffinePrimitive)},
         {{"ScaleShift"}, CREATE(DiagonalPrimitive)},
         {{"AffineFilter"}, CREATE(AffineFilterPrimitive)},
-        {{"Eltwise"},
-         CREATE(EltwisePrimitive)},  // same as diagonal while weights are not taken from network, rather than from another output
+        {{"Const"}, CREATE(ConstPrimitive)},
+        {{"Eltwise"}, CREATE(EltwisePrimitive)},  // same as diagonal while weights are not taken from network, rather than from another output
         {{"Split"}, SKIP},  // skip information about which part of prev layer need to consume handle during layer creation
         {{"Slice"}, SKIP},
         {{"clamp", "sigmoid", "relu", "tanh", "identity"}, CREATE(PWLPrimitive)},
@@ -1465,6 +1484,7 @@ GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string 
         { "Split" , Split },
         { "Slice" , Slice },
         { "Eltwise" , Eltwise },
+        { "Const" , Const },
         { "Reshape" , Reshape },
         { "ScaleShift" , ScaleShift },
         { "Clamp" , Clamp },
@@ -1548,29 +1568,21 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     // network optimisation phases
     auto run_passes = [&] (CNNNetPtr network) {
-        PassManager passes(policy);
-        auto layers = CNNNetSortTopologically(*network.get());
-        passes.substitutePRelu(layers);
-        layers = CNNNetSortTopologically(*network.get());
-        passes.reorderMaxPool(layers);
-        //  ToDo sort if bool flag "changed"
-        //  returned from insertion function
-        passes.insertAligningFilterLayer(layers);
+        auto passes = make_shared<PassManager>(policy, network);
+        passes->registerPass<SubstitutePReluPass>();
+        passes->registerPass<ReorderMaxPoolPass>();
+        passes->registerPass<InsertAligningFilterLayerPass>();
 
-#if ENABLE_AUTO_PERMUTE
-        layers = CNNNetSortTopologically(*network.get());
-        passes.reversePermutations(layers);
-#endif
-        layers = CNNNetSortTopologically(*network.get());
-        passes.insertIdentityLayer(layers);
-        layers = CNNNetSortTopologically(*network.get());
-        passes.insertCopyLayer(layers);
-        layers = CNNNetSortTopologically(*network.get());
-        passes.insertDiagonalLayer(layers);
-        layers = CNNNetSortTopologically(*network.get());
-        passes.handleMultipleActivationsForTheLayer(layers);
-        layers = CNNNetSortTopologically(*network.get());
-        passes.substituteScaleShiftBroadCast(layers);
+        if (policy.PermutePolicy != Policy::DISABLED) {
+            passes->registerPass<ReversePermutationsPass>();
+        }
+        passes->registerPass<InsertIdentityLayerPass>();
+        passes->registerPass<InsertCopyLayerPass>();
+        passes->registerPass<InsertDiagonalLayerPass>();
+        passes->registerPass<HandleMultipleActivationsForTheLayerPass>();
+        passes->registerPass<SubstituteScaleShiftBroadCastPass>();
+
+        passes->run();
     };
 
     Config supported = Config({

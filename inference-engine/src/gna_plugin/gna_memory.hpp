@@ -78,7 +78,7 @@ class GNAMemory : public GNAMemRequestsQueue {
     void commit() {
         // 1st stage -- looking for expandable bind requests:
         for (auto &originated : _future_heap) {
-            if (originated._type == REQUEST_BIND) continue;
+            if (originated._type & REQUEST_BIND) continue;
             size_t offset = 0;
             iterate_binded(originated, [&](MemRequest & reference, MemRequest & binded) {
                 if (&originated == &reference) {
@@ -108,7 +108,11 @@ class GNAMemory : public GNAMemRequestsQueue {
 
                 if (re._ptr_out != nullptr) {
                     auto cptr = heap.get() + offset;
-                    *reinterpret_cast<void **>(re._ptr_out) = cptr;
+                    if (re._type & REQUEST_BIND) {
+                        cptr = reinterpret_cast<uint8_t*>(*reinterpret_cast<void **>(re._ptr_out));
+                    } else {
+                        *reinterpret_cast<void **>(re._ptr_out) = cptr;
+                    }
                     // std::cout << "ALLOCATED=" << cptr << ", size=" << re._element_size * re._num_elements << "\n";
                     iterate_binded(re, [](MemRequest & reference, MemRequest & binded) {
                         *reinterpret_cast<void **>(binded._ptr_out) =
@@ -117,7 +121,7 @@ class GNAMemory : public GNAMemRequestsQueue {
 
                     // std::cout << "size=" << ALIGN(sz, re._alignment) << "\n" << std::flush;
 
-                    switch (re._type) {
+                    switch (re._type & ~REQUEST_BIND) {
                         case REQUEST_ALLOCATE :break;
                         case REQUEST_STORE : {
                             if (re._ptr_in != nullptr) {
@@ -136,17 +140,19 @@ class GNAMemory : public GNAMemRequestsQueue {
                         }
                     }
                 }
-
-                offset += ALIGN(sz + re._padding, re._alignment);
+                if (!(re._type & REQUEST_BIND)) {
+                    offset += ALIGN(sz + re._padding, re._alignment);
+                }
             }
         };
 
         setupOffsets([](MemRequest & request) {
-            return request._region != REGION_RW;
+            // TODO: consume bind requests separately from storage type
+            return !(request._type & REQUEST_BIND) && (request._region != REGION_RW);
         }, 0);
 
         setupOffsets([](MemRequest & request) {
-            return request._region != REGION_RO;
+            return (request._type & REQUEST_BIND) || request._region != REGION_RO;
         }, _rw_section_size);
     }
 

@@ -112,6 +112,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         ScaleShift,
         Clamp,
         Concat,
+        Const,
         Copy,
         Permute,
         Memory,
@@ -210,6 +211,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void AffinePrimitive(InferenceEngine::CNNLayerPtr, bool isDiag = false);
     void AffineFilterPrimitive(InferenceEngine::CNNLayerPtr);
     void DiagonalPrimitive(InferenceEngine::CNNLayerPtr);
+    void ConstPrimitive(InferenceEngine::CNNLayerPtr);
     void ConvolutionPrimitive(InferenceEngine::CNNLayerPtr);
     void PermutePrimitive(InferenceEngine::CNNLayerPtr);
     void PoolingPrimitive(InferenceEngine::CNNLayerPtr);
@@ -391,7 +393,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     /**
      * Connects either memory output, or generic output to a layer
      * @param layer - layer pointer
-     * @param ptr - pointer to pointer where to store  output layer information
+     * @param ptr_outputs - pointer to pointer where to store  output layer information
+     * @param ptr_inputs - sizeof output blob
      * @param sz - sizeof output blob
      * @param ptr_inputs - sizeof output blob
      */

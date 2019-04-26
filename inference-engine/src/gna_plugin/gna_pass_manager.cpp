@@ -18,6 +18,7 @@
 #include <blob_factory.hpp>
 #include <ie_memcpy.h>
 #include <ie_algorithm.hpp>
+#include <details/ie_cnn_network_tools.h>
 #include "gna_pass_manager.hpp"
 #include "gna_layer_info.hpp"
 #include "gna_plugin_log.hpp"
@@ -26,50 +27,30 @@ using namespace InferenceEngine;
 using namespace InferenceEngine::details;
 using namespace GNAPluginNS;
 
-void PassManager::insertDiagonalLayer(std::vector<CNNLayerPtr> & layers) {
-    int numOfDiagLayers = 0;
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
-    for (auto & l : layers) {
-        if (l->insData.empty()) continue;
-        auto prevLayer = CNNNetPrevLayer(l);
-        if (LayerInfo(l).isActivation()) {
-            if (LayerInfo(prevLayer).has32BOutput()) {
-                continue;
-            }
-        } else {
-            auto eltwise = dynamic_cast<InferenceEngine::EltwiseLayer *>(l.get());
-            if (!eltwise) {
-                continue;
-            }
-            // in case of eltwise sum one of input would be 4 bytes one - 2
-            // in case of eltwise mull one of input would be 2 bytes one - 2
-            // for e sum if we have 4-4 inputs we will handle that by inserting identity activation
-            // for e sum if we have 4-2 - OK
-            // for e sum if we have 2-2 inputs we need to insert diagonal -- handling here
-            // for e mul if we have 2-2 - OK
-            // for e mul if we have 2-4 - inputs we need to insert identity to put 4 bytes input into weights
-            // for e mul if we have 4-4 - inputs we need to insert 2 identities to put both 4 bytes input into weights
-
-            if (eltwise->_operation != EltwiseLayer::Sum)
-                continue;
-
-            auto prevLayer1 = CNNNetPrevLayer(l, 1);
-            if (!LayerInfo(prevLayer).has16BOutput() || !LayerInfo(prevLayer1).has16BOutput())
-                continue;
-        }
-        insertDiagonalLayerBetween(prevLayer, l, 1.f);
+std::shared_ptr<IPassManager> BasePass::getPassManager() {
+    auto sharedMgr = mgr.lock();
+    if (!sharedMgr) {
+        THROW_GNA_EXCEPTION << getName() << ": cannot get PassManager object";
     }
+    return sharedMgr;
 }
 
-void PassManager::insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
-                                           InferenceEngine::CNNLayerPtr nextLayer,
-                                           float fillValue) {
+/**
+ * helper injections of diagonal layer with certain value
+ */
+
+static const char diagonalLayerCounterName[] = "diagonalLayerCounter";
+
+static void insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
+                                       InferenceEngine::CNNLayerPtr nextLayer,
+                                       int &diagonalLayerCounter,
+                                       float fillValue) {
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(prevLayer);
 #ifdef PLOT
     std::cout << "Inserted Diagonal Layer between: " << prevLayer->name << " and " << nextLayer->name << "\n" << std::flush;
 #endif
     // actual insertion
-    auto diagName = std::string("SyntheticScaleShift_") + std::to_string(syntheticDiagonalLayersNum++);
+    auto diagName = std::string("SyntheticScaleShift_") + std::to_string(diagonalLayerCounter++);
     auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
 
     // TODO: diagonal size
@@ -89,56 +70,7 @@ void PassManager::insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLa
     CNNNetworkInsertLayer(prevLayer, nextLayer, diagonalWithQuant);
 }
 
-void PassManager::handleMultipleActivationsForTheLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
-    // found layer followed by with multiple activations
-    for (auto & l : layers) {
-        std::set<CNNLayerPtr> activations;
-        std::set<CNNLayerPtr> identities;
-
-        for (auto && odata : l->outData) {
-            for (auto && inputTo : odata->getInputTo()) {
-                LayerInfo info(inputTo.second);
-
-                if (info.isIdentity()) {
-                    identities.insert(inputTo.second);
-                } else if (info.isActivation()) {
-                    activations.insert(inputTo.second);
-                }
-            }
-        }
-        // single or not activations case
-        if (activations.size() + identities.size() < 2) continue;
-
-        // insert diagonals, but not for identity activations
-        for (auto && activation : activations) {
-            insertDiagonalLayerBetween(l, activation, 0.0f);
-        }
-    }
-}
-
-void PassManager::reorderMaxPool(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
-    // detecting following pattern
-    // conv->relu->maxpooling
-    // changing it to conv->maxpooling->relu
-    for (auto & l : layers) {
-        auto pool = LayerInfo(l);
-        if (!pool.isMaxPooling()) continue;
-
-        // checking prev layer type
-        auto activation = LayerInfo(CNNNetPrevLayer(l));
-        if (!activation.isActivation()) continue;
-
-        // if activation came from convolution
-        auto convolution = LayerInfo(CNNNetPrevLayer(static_cast<InferenceEngine::CNNLayer*>(activation)));
-        if (!convolution.isConvolution()) continue;
-
-        gnalog() << "MaxPooling: " << pool << ", reordered with activation: " << activation << "\n";
-
-        CNNNetSwapLayers(activation, pool);
-    }
-}
-
-std::vector<CNNLayerPtr> PassManager::getCandidatesForIdentityInsertion(const CNNLayerPtr l) {
+static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayerPtr l) {
     std::vector<CNNLayerPtr> prevLayers;
 
     // skipping memory inputs and true inputs layers
@@ -208,7 +140,91 @@ std::vector<CNNLayerPtr> PassManager::getCandidatesForIdentityInsertion(const CN
     return prevLayers;
 }
 
-void PassManager::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
+void InsertDiagonalLayerPass::run() {
+    int numOfDiagLayers = 0;
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+    for (auto & l : *pLayers) {
+        if (l->insData.empty()) continue;
+        auto prevLayer = CNNNetPrevLayer(l);
+        if (LayerInfo(l).isActivation()) {
+            if (LayerInfo(prevLayer).has32BOutput()) {
+                continue;
+            }
+        } else {
+            auto eltwise = dynamic_cast<InferenceEngine::EltwiseLayer *>(l.get());
+            if (!eltwise) {
+                continue;
+            }
+            // in case of eltwise sum one of input would be 4 bytes one - 2
+            // in case of eltwise mull one of input would be 2 bytes one - 2
+            // for e sum if we have 4-4 inputs we will handle that by inserting identity activation
+            // for e sum if we have 4-2 - OK
+            // for e sum if we have 2-2 inputs we need to insert diagonal -- handling here
+            // for e mul if we have 2-2 - OK
+            // for e mul if we have 2-4 - inputs we need to insert identity to put 4 bytes input into weights
+            // for e mul if we have 4-4 - inputs we need to insert 2 identities to put both 4 bytes input into weights
+
+            if (eltwise->_operation != EltwiseLayer::Sum)
+                continue;
+
+            auto prevLayer1 = CNNNetPrevLayer(l, 1);
+            if (!LayerInfo(prevLayer).has16BOutput() || !LayerInfo(prevLayer1).has16BOutput())
+                continue;
+        }
+        insertDiagonalLayerBetween(prevLayer, l, getPassManager()->getIntVar(diagonalLayerCounterName), 1.f);
+    }
+}
+
+void HandleMultipleActivationsForTheLayerPass::run() {
+    // found layer followed by with multiple activations
+    for (auto & l : *pLayers) {
+        std::set<CNNLayerPtr> activations;
+        std::set<CNNLayerPtr> identities;
+
+        for (auto && odata : l->outData) {
+            for (auto && inputTo : odata->getInputTo()) {
+                LayerInfo info(inputTo.second);
+
+                if (info.isIdentity()) {
+                    identities.insert(inputTo.second);
+                } else if (info.isActivation()) {
+                    activations.insert(inputTo.second);
+                }
+            }
+        }
+        // single or not activations case
+        if (activations.size() + identities.size() < 2) continue;
+
+        // insert diagonals, but not for identity activations
+        for (auto && activation : activations) {
+            insertDiagonalLayerBetween(l, activation, getPassManager()->getIntVar(diagonalLayerCounterName), 0.0f);
+        }
+    }
+}
+
+void ReorderMaxPoolPass::run() {
+    // detecting following pattern
+    // conv->relu->maxpooling
+    // changing it to conv->maxpooling->relu
+    for (auto & l : *pLayers) {
+        auto pool = LayerInfo(l);
+        if (!pool.isMaxPooling()) continue;
+
+        // checking prev layer type
+        auto activation = LayerInfo(CNNNetPrevLayer(l));
+        if (!activation.isActivation()) continue;
+
+        // if activation came from convolution
+        auto convolution = LayerInfo(CNNNetPrevLayer(static_cast<InferenceEngine::CNNLayer*>(activation)));
+        if (!convolution.isConvolution()) continue;
+
+        gnalog() << "MaxPooling: " << pool << ", reordered with activation: " << activation << "\n";
+
+        CNNNetSwapLayers(activation, pool);
+    }
+}
+
+void SubstitutePReluPass::run() {
     auto getScale = [](CNNLayer* layer) {
         auto powerCandidate = LayerInfo(layer);
         if (!powerCandidate.isPower()) return 0.0f;
@@ -233,7 +249,7 @@ void PassManager::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &lay
     };
 
     // TODO: unit tests for bad cases
-    for (auto & l : layers) {
+    for (auto & l : *pLayers) {
         // assume l is starting layer, that is followed by eltwise_sum(relu, negate/relu/scale/negate)
         if (l->outData.size() != 1) continue;
         auto &outputLayers = l->outData[0]->inputTo;
@@ -301,7 +317,7 @@ void PassManager::substitutePRelu(std::vector<InferenceEngine::CNNLayerPtr> &lay
     }
 }
 
-void PassManager::reversePermutations(std::vector<CNNLayerPtr> &layers) {
+void ReversePermutationsPass::run() {
     std::function<CNNLayerPtr(CNNLayerPtr, std::function<bool(CNNLayerPtr)>)> prevLayerSkipCertain
         = [&prevLayerSkipCertain](CNNLayerPtr layer, std::function<bool(CNNLayerPtr)> shouldSkip) -> CNNLayerPtr {
         if (CNNNetHasPrevLayer(layer.get())) {
@@ -347,7 +363,7 @@ void PassManager::reversePermutations(std::vector<CNNLayerPtr> &layers) {
     std::unordered_set<std::string> affineWithPermutedWeights;
     std::list<CNNLayerPtr> permutationstoRemove;
 
-    for (auto & l : layers) {
+    for (auto & l : *pLayers) {
         if (!LayerInfo(l).isPermute()) {
             continue;
         }
@@ -384,7 +400,7 @@ void PassManager::reversePermutations(std::vector<CNNLayerPtr> &layers) {
     }
 
     // search for conv->affine sequences
-    for (auto & l : layers) {
+    for (auto & l : *pLayers) {
         if (!LayerInfo(l).isFullyConnected() || 0 != affineWithPermutedWeights.count(l->name)) {
             continue;
         }
@@ -400,10 +416,10 @@ void PassManager::reversePermutations(std::vector<CNNLayerPtr> &layers) {
     }
 }
 
-void PassManager::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
+void InsertIdentityLayerPass::run() {
     int numOfIdentityLayers = 0;
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
-    for (auto & l : layers) {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+    for (auto & l : *pLayers) {
         for (auto && prev : getCandidatesForIdentityInsertion(l)) {
             // actual insertion
             auto activationName = std::string("identity_") + std::to_string(numOfIdentityLayers++);
@@ -442,10 +458,10 @@ void PassManager::insertIdentityLayer(std::vector<CNNLayerPtr> &layers) {
     }
 }
 
-void PassManager::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+void InsertCopyLayerPass::run() {
     int numCopyLayers = 0;
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
-    for (auto & l : layers) {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+    for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
         auto prevLayer = CNNNetPrevLayer(l);
         if ((LayerInfo(l).isMemory() && LayerInfo(prevLayer).isConcat()) ||
@@ -454,13 +470,13 @@ void PassManager::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & la
                 auto cropLayer =  LayerInfo(prevLayer).as<CropLayer*>();
                 size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
                 if (ALIGN(cropOffset, 8) != cropOffset) {
-                    // The crop will be replced by affine.
+                    // The crop will be replaced by affine.
                     // Copy layer insertion is not required
                     continue;
                 }
             }
             std::string copyName = std::string("copy_") + std::to_string(numCopyLayers++);
-            gnalog() << "Inserted "<< copyName << " between: " << l->name << " and " << prevLayer->name << "\n" << std::flush;
+            gnalog() << "Inserted "<< copyName << " between: " << l->name << " and " << prevLayer->name << std::endl;
 
             CNNLayerPtr copyLayer =
             std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
@@ -485,13 +501,13 @@ void PassManager::insertCopyLayer(std::vector<InferenceEngine::CNNLayerPtr> & la
     }
 }
 
-void PassManager::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLayerPtr> & layers) {
+void InsertAligningFilterLayerPass::run() {
     // currently split layer only supports 2 bytes in int16 and int8 mode. In fp32 mode this no necessary but usefull for testing
     const int bytesPerSplitElement = 2;
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
 
     int numOfFilterLayers = 0;
-    for (auto &l : layers) {
+    for (auto &l : *pLayers) {
         auto info = LayerInfo(l);
         if (!info.isSplit() && !info.isSlice()) {
             continue;
@@ -503,14 +519,17 @@ void PassManager::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLaye
             auto outputSize = product(++begin(splitOutput->getDims()), end(splitOutput->getDims()));
 
             if (currentOffset != ALIGN64(currentOffset)) {
-                // this split output not beginning from 64 bytes aligned boundary - need to correct by alligning filter layer
+                // this split output not beginning from 64 bytes aligned boundary - need to correct by aligning filter layer
 #ifdef PLOT
                 // getting list of layers attached to current split output
-                gnalog() << "Inserted Affine Filter Layer between: " << l->name << " and : \n";
+                gnalog() << "Inserted Affine Filter Layer between: " << l->name << " and ";
                 for (auto &&followingLayers : splitOutput->getInputTo()) {
-                    gnalog() << "    " << followingLayers.second->name << "\n";
+                    if (splitOutput->getInputTo().size() != 1) {
+                        gnalog() << "\n    ";
+                    }
+                    gnalog() << followingLayers.second->name;
                 }
-                gnalog() << std::flush;
+                gnalog() << std::endl;
 #endif
                 // insert the filter
                 auto filterName = std::string("AlignFilter_") + std::to_string(numOfFilterLayers++);
@@ -528,7 +547,11 @@ void PassManager::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLaye
                 // encodes offset to beginning of split layer input
                 filterLayer->params["offset"] = std::to_string(aligned64_offset);
 
-                auto &num_rows_out = splitOutput->dims[0];
+                auto dims = splitOutput->getDims();
+                if (dims.size() > 3) {
+                    THROW_GNA_EXCEPTION << "unsupported split layer dims size: " << dims.size();
+                }
+                auto num_rows_out = dims[1]  * (dims.size() != 2 ? dims[2] : 1);
 
                 std::vector<float> filterWeights(newOutputSize * num_rows_out, 0.f);
 
@@ -564,9 +587,9 @@ void PassManager::insertAligningFilterLayer(std::vector<InferenceEngine::CNNLaye
     }
 }
 
-void PassManager::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNNLayerPtr> &layers) {
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layers.front());
-    for (auto & l : layers) {
+void SubstituteScaleShiftBroadCastPass::run() {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+    for (auto & l : *pLayers) {
         LayerInfo layerInfo(l);
 
         if (!layerInfo.isScaleShift()) {
@@ -606,7 +629,7 @@ void PassManager::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNN
 
         gnalog() << "Substitution ScaleShift broadcast for layer: " << l->name << "\n";
         // approach 1 - weights tiling
-        if (policy.ScaleShiftPolicy == Policy::WEIGHTS_TILING) {
+        if (getPassManager()->getPolicy().ScaleShiftPolicy == Policy::WEIGHTS_TILING) {
             auto tileBlob = [](Blob::Ptr &blob, size_t TileTo){
                 auto weightsElements = blob->size();
                 auto weightsBytes = blob->byteSize();
@@ -642,7 +665,17 @@ void PassManager::substituteScaleShiftBroadCast(std::vector<InferenceEngine::CNN
             insData->reshape({batchSize, nElements}, Layout::NC);
         } else {
             THROW_GNA_EXCEPTION << "Not implemented substitution of scaleshift broadcast policy of "
-                                << policy.ScaleShiftPolicy <<  "using layers tiling, layer: " << l->name;
+                                << getPassManager()->getPolicy().ScaleShiftPolicy <<  "using layers tiling, layer: " << l->name;
         }
+    }
+}
+
+void PassManager::run() {
+    int index = 0;
+    for (auto && pass : passes) {
+        auto layers = CNNNetSortTopologically(*network.get());
+        pass->attach(layers);
+        gnalog() << "PASS: " << ++index << "/" << passes.size() << ":" << pass->getName() << "\n";
+        pass->run();
     }
 }
