@@ -10,11 +10,12 @@
 inline void fp16_to_fp32(InferenceEngine::WeightableLayer *lp) {
     InferenceEngine::BlobMap newBlobs;
     for (auto& blob : lp->blobs) {
-        if (blob.second->precision() != InferenceEngine::Precision::FP16) {
+        if (blob.second->getTensorDesc().getPrecision() != InferenceEngine::Precision::FP16) {
             THROW_GNA_EXCEPTION << "Unsupported precision. Layer: " << lp->name << " , Blob: " << blob.first;
         }
         auto tmp =
-                InferenceEngine::make_shared_blob<float>(InferenceEngine::Precision::FP32, InferenceEngine::Layout::C, blob.second->dims());
+                InferenceEngine::make_shared_blob<float>({ InferenceEngine::Precision::FP32,
+                    blob.second->getTensorDesc().getDims(), InferenceEngine::Layout::C });
         tmp->allocate();
         int i = 0;
         for (auto& f32Value : *tmp) {
@@ -28,7 +29,7 @@ inline void fp16_to_fp32(InferenceEngine::WeightableLayer *lp) {
     lp->blobs = newBlobs;
     lp->precision = InferenceEngine::Precision::FP32;
     for (auto& dataItem : lp->outData) {
-        dataItem->precision = InferenceEngine::Precision::FP32;
+        dataItem->setPrecision(InferenceEngine::Precision::FP32);
     }
 }
 
@@ -41,7 +42,7 @@ template <>
 inline bool convertWeights(InferenceEngine::CNNLayer* lp) {
     lp->precision = InferenceEngine::Precision::FP32;
     for (auto& dataItem : lp->outData) {
-        dataItem->precision = InferenceEngine::Precision::FP32;
+        dataItem->setPrecision(InferenceEngine::Precision::FP32);
     }
     return true;
 }
