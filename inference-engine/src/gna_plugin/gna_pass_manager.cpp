@@ -11,6 +11,7 @@
 #include <list>
 #include <unordered_set>
 #include <set>
+#include <fstream>
 
 #include <quantization/quantized_layer_params.hpp>
 #include <graph_tools.hpp>
@@ -19,9 +20,13 @@
 #include <ie_memcpy.h>
 #include <ie_algorithm.hpp>
 #include <details/ie_cnn_network_tools.h>
+#include <ie_util_internal.hpp>
+
 #include "gna_pass_manager.hpp"
 #include "gna_layer_info.hpp"
 #include "gna_plugin_log.hpp"
+
+#include "net_pass.h"
 
 using namespace InferenceEngine;
 using namespace InferenceEngine::details;
@@ -422,7 +427,7 @@ void InsertIdentityLayerPass::run() {
     for (auto & l : *pLayers) {
         for (auto && prev : getCandidatesForIdentityInsertion(l)) {
             // actual insertion
-            auto activationName = std::string("identity_") + std::to_string(numOfIdentityLayers++);
+            auto activationName = std::string("identity_") + std::to_string(++numOfIdentityLayers);
 
             gnalog() << "Inserted "<< activationName << " between: " << prev->name << " and " << l->name << "\n" << std::flush;
 
@@ -432,7 +437,7 @@ void InsertIdentityLayerPass::run() {
             auto newDims = inputData->dims;
             std::reverse(begin(newDims), end(newDims));
 
-            auto dataPtr = std::make_shared<Data>("FullyConnected",
+            auto dataPtr = std::make_shared<Data>("identity_" + std::to_string(numOfIdentityLayers),
                                                   TensorDesc(inputData->precision,
                                                              newDims,
                                                              inputData->layout));
@@ -677,5 +682,47 @@ void PassManager::run() {
         pass->attach(layers);
         gnalog() << "PASS: " << ++index << "/" << passes.size() << ":" << pass->getName() << "\n";
         pass->run();
+
+// #define PLOT_PASSES
+#ifdef PLOT_PASSES
+        std::string name = "gna_passes" + std::to_string(index) + ".dot";
+        std::ofstream out(name);
+        saveGraphToDot(*network.get(), out, [](const CNNLayerPtr layer,
+                                         ordered_properties &printed_properties,
+                                         ordered_properties &node_properties) {});
+#endif
+    }
+}
+
+
+void UnrollLSTMCellPass::run() {
+    for (auto& layer : *pLayers) {
+        if (layer->type != "LSTMCell")
+            continue;
+
+        // TODO: iefode: refactor this code
+
+        InferenceEngine::NetPass::UnrollRNN_if(*getPassManager()->getNetwork(), [] (const RNNCellBase& rnn) -> bool {
+            if (rnn.clip != 0.0f)
+                return true;
+            if (rnn.type == "GRUCell" ||
+                rnn.type == "GRUSequence" ||
+                rnn.type == "RNNCell" ||
+                rnn.type == "RNNSequence")
+                return true;
+            if (!(rnn.type == "LSTMCell" || rnn.type == "LSTMSequence") ||
+                rnn.activations == std::vector<std::string>{"relu"})
+                return false;
+            return true;
+        });
+    }
+}
+
+void UnrollTIPass::run() {
+    for (auto& layer : *pLayers) {
+        if (layer->type != "TensorIterator")
+            continue;
+
+        InferenceEngine::NetPass::UnrollTI(*getPassManager()->getNetwork());
     }
 }

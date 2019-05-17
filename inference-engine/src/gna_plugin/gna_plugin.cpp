@@ -452,8 +452,6 @@ void  GNAPlugin::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
     void * ptr_for_const_blob = &ptr_for_const_blob;
     connectOutput(constLayer, ptr_for_const_blob, constBlob->size());
 
-    const_connections[constLayer->name] = ptr_for_const_blob;
-
     // TODO: segment type for bind, bind initializer not used - need refactor to separate bind and allocation requests
     // dont see practical use case when bind storage type need to be different that allocation type
     gnamem->readonly().bind_initializer(ptr_for_const_blob, [constBlob](void * data, size_t size) {
@@ -789,8 +787,18 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     size_t idx = 0;
     for (auto && inputLayer : concatLayerInfo.concatInputLayers) {
-        if ( InferenceEngine::details::CaselessEq<std::string>()
-                                            (inputLayer.name, "input") ) {
+        auto concatLayerInput = concat_connection.find(concatLayer->name)->second.getConcat();
+        int it = 0;
+
+        for (auto& insData : concatLayerInput->insData) {
+            if (insData.lock()->getName().find(inputLayer.name) != std::string::npos) {
+                break;
+            }
+            ++it;
+        }
+        IE_ASSERT(it != concatLayerInput->insData.size());
+        auto layerInfo = LayerInfo(concatLayerInput->insData[it].lock()->getCreatorLayer().lock());
+        if (layerInfo.isInput() || layerInfo.isSplit()) {
             connectInput(layer, &concatLayerInfo.gna_ptr,
                                 concatLayerInfo.reserved_size-inputLayer.offset, static_cast<int32_t>(-inputLayer.offset), idx);
         }
@@ -1022,7 +1030,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
         if (weightable._biases) {
             THROW_GNA_EXCEPTION << "Layer: "
                                 << layer->name << ", cannot be connected to its parent: " << prevLayer->name
-                                << "due to precision mismatch";
+                                << " due to precision mismatch";
         }
         useBiasConnection = true;
     }
@@ -1196,8 +1204,9 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_rows_in = filterLayer->_weights->size() / num_rows_out;
 
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
-
-    gnalog() << "Filter " << layer->name << " is being inserted...\n";
+#ifdef  PLOT
+    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << "\n";
+#endif
     auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->precision() : outputs->precision;
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
@@ -1451,6 +1460,8 @@ void GNAPlugin::CreateLayerPrimitive(CNNLayerPtr layer) {
         {{"Reshape"}, SKIP},  // TODO: handled not in GNA but rather in GNA plugin
         {{"Crop"}, CREATE(CropPrimitive)},
         {{"Copy"}, CREATE(CopyPrimitive)},
+        {{"TensorIterator"}, SKIP},
+        {{"LSTMCell"}, SKIP}
     };
     auto it = LayersBuilder::getStorage().find(layer->type);
     if (it != LayersBuilder::getStorage().end()) {
@@ -1496,7 +1507,9 @@ GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string 
         { "Permute" , Permute },
         { "Power" , Power},
         { "Memory" , Memory },
-        { "Crop" , Crop }
+        { "Crop" , Crop },
+        { "LSTMCell", LSTMCell },
+        { "TensorIterator", TensorIterator }
     };
     auto it = LayerNameToType.find(str);
     if (it != LayerNameToType.end())
@@ -1572,6 +1585,8 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     // network optimisation phases
     auto run_passes = [&] (CNNNetPtr network) {
         auto passes = make_shared<PassManager>(policy, network);
+        passes->registerPass<UnrollTIPass>();
+        passes->registerPass<UnrollLSTMCellPass>();
         passes->registerPass<SubstitutePReluPass>();
         passes->registerPass<ReorderMaxPoolPass>();
         passes->registerPass<InsertAligningFilterLayerPass>();
@@ -1632,7 +1647,6 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     ordered_properties &node_properties) {});
 #endif
 
-
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
     std::vector<CNNLayerPtr> sortedNoMem;
     std::unordered_map<std::string, std::vector<InferenceEngine::CNNLayerPtr>> memoryPairs;
@@ -1690,7 +1704,14 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         THROW_GNA_EXCEPTION << "No outputs for the topology";
     }
     if (outputsDataMap.size() != 1) {
-        THROW_GNA_EXCEPTION << "cannot infer topologies with more than one output";
+        for (auto& output : outputsDataMap) {
+            if (output.first.find(std::string("TensorIterator")) != std::string::npos) {
+                outputsDataMap.erase(output.first);
+            }
+        }
+        if (outputsDataMap.size() != 1) {
+            THROW_GNA_EXCEPTION << "cannot infer topologies with more than one output";
+        }
     }
     outputDims = outputsDataMap.begin()->second->dims;
 
@@ -2568,8 +2589,21 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
                                 gnamem->reserve_ptr(&concatLayerInfoItem.gna_ptr, ALIGN64(concatLayerInfoItem.reserved_size));
 
                                 for (auto &&inputLayer : concatLayerInfoItem.concatInputLayers) {
-                                    if (InferenceEngine::details::CaselessEq<std::string>()
-                                            (inputLayer.name, "input")) {
+                                    auto concatLayerInput = concat_connection.begin()->second.getConcat();
+                                    int i = 0;
+
+                                    for (auto& insData : concatLayerInput->insData) {
+                                        if (insData.lock()->getName().find(inputLayer.name) != std::string::npos) {
+                                            break;
+                                        }
+                                        ++i;
+                                    }
+                                    IE_ASSERT(i != concatLayerInput->insData.size());
+                                    auto layerInfo = LayerInfo(concatLayerInput->insData[i].lock()->getCreatorLayer().lock());
+//                                    if (layerInfo.isInput() || layerInfo.isSplit()) {
+                                    if (layerInfo.isInput()) {
+//                                    if (InferenceEngine::details::CaselessEq<std::string>()
+//                                            (inputLayer.name, "input")) {
                                         bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
                                     }
                                 }

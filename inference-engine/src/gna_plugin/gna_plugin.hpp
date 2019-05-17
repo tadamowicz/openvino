@@ -119,6 +119,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         Memory,
         Power,
         Crop,
+        LSTMCell,
+        TensorIterator,
         NO_TYPE
     };
 
@@ -285,6 +287,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         };
 
         std::vector<ConcatConnectedLayerInfo> concatInputLayers;
+//        std::vector<size_t> concatInputLayers;
     };
 
     // Split, Slice
