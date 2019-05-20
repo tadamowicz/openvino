@@ -1618,7 +1618,8 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     }
     });
 
-    supported.setDefaultDevice(TargetDevice::eGNA);
+    supported.setDefaultDevice(sw_fp32 ?  TargetDevice::eCPU : TargetDevice::eGNA);
+
     auto newNet = supported.find_configuration(network).convert(network);
 
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
@@ -2352,10 +2353,14 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         };
         auto procType = supported_values.find(value);
         if (procType == supported_values.end()) {
-            log << "GNA device mode unsupported: " << value;
-            THROW_GNA_EXCEPTION << "GNA device mode unsupported: " << value;
+            if (value == GNA_CONFIG_VALUE(SW_FP32)) {
+                sw_fp32 = true;
+            } else {
+                THROW_GNA_EXCEPTION << "Unsupported GNA device mode: " << value;
+            }
+        } else {
+            gna_proc_type = static_cast<intel_gna_proc_t>(procType->second);
         }
-        gna_proc_type = static_cast<intel_gna_proc_t>(procType->second);
     });
 
     if_set(GNA_CONFIG_KEY(COMPACT_MODE), [&] {

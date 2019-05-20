@@ -85,6 +85,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     bool uniformPwlDesign = false;
     uint8_t gna_lib_async_threads_num = 1;
     bool gna_openmp_multithreading = false;
+    bool sw_fp32 = false;
     // precision of GNA hardware model
     InferenceEngine::Precision gnaPrecision = InferenceEngine::Precision::I16;
 
