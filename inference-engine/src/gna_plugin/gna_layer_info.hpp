@@ -160,7 +160,7 @@ class LayerInfo {
     bool isCopy() const noexcept {
         return isOfType("copy");
     }
-    size_t paddingSize() const noexcept {
+    size_t paddingSize() const {
         static InferenceEngine::details::caseless_set<std::string> layersWithPossiblePadding = {"FullyConnected",
                                                                         "InnerProduct",
                                                                              "Pooling",
