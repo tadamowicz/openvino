@@ -29,6 +29,9 @@
 #define XBASEMASK 0xFFFFFFFC  // only top 30 bits are used
 #define KALDI_LSTM_CLIP_LOWER (-50.0)
 #define KALDI_LSTM_CLIP_UPPER (50.0)
+#define LOG_DOMAIN (2981.0)
+#define EXP_DOMAIN (8.0)
+#define EXP_BREAK (0.045)
 
 typedef struct {
     double t;

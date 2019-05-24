@@ -1202,6 +1202,12 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         {"relu", kActRelu},
         {"leakyrelu", kActLeakyRelu},
         {"clamp", kActKaldiLstmClipping},
+        {"exp", kActExp},
+        {"log", kActLog},
+        {"sign", kActSign},
+        {"abs", kActAbs},
+        {"neglog", kActNegLog},
+        {"neghalflog", kActNegHalfLog},
         {"identity", kActIdentity},
         {"softsign", kActSoftSign}
     };
@@ -1233,6 +1239,13 @@ case name:\
         GET_ACTIVATION_NAME(kActKaldiLstmClipping);
         GET_ACTIVATION_NAME(kActIdentity);
         GET_ACTIVATION_NAME(kActSoftSign);
+        GET_ACTIVATION_NAME(kActCustom);
+        GET_ACTIVATION_NAME(kActExp);
+        GET_ACTIVATION_NAME(kActLog);
+        GET_ACTIVATION_NAME(kActSign);
+        GET_ACTIVATION_NAME(kActAbs);
+        GET_ACTIVATION_NAME(kActNegLog);
+        GET_ACTIVATION_NAME(kActNegHalfLog);
     default: break;
     }
 #endif
@@ -1260,7 +1273,8 @@ case name:\
             case kActSoftSign:ptr_pwl_segments.resize(SOFTSIGN_NUM_SEGMENTS);
                 break;
             case kActCustom:
-            default:THROW_GNA_EXCEPTION << "Activation function type not yet supported " << activation_type;
+            default:
+                THROW_GNA_EXCEPTION << "Activation function type not yet supported " << activation_type;
             }
             PwlDesign16(activation_type,
                 &*ptr_pwl_segments.begin(),
@@ -1342,7 +1356,19 @@ void GNAGraphCompiler::CreateLayerPrimitive(CNNLayerPtr layer) {
         {{"Split"}, SKIP},  // skip information about which part of prev layer need to consume handle during layer creation
         {{"Slice"}, SKIP},
         {{"link"}, SKIP},
-        {{"clamp", "sigmoid", "relu", "tanh", "identity", "softsign"}, CREATE(PWLPrimitive)},
+        {{"clamp",
+          "sigmoid",
+          "relu",
+          "tanh",
+          "identity",
+          "softsign",
+          "exp",
+          "log",
+          "sign",
+          "abs",
+          "neglog",
+          "neghalflog"},
+          CREATE(PWLPrimitive)},
         {{"Convolution"}, CREATE(ConvolutionPrimitive)},
         {{"Permute"}, CREATE(PermutePrimitive)},  // permute of certain form (2D transpose) can be assimilated in followed FC layer
         {{"Pooling"}, CREATE(PoolingPrimitive)},

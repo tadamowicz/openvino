@@ -67,8 +67,20 @@ class LayerInfo {
     bool isActivation() const noexcept {
         IS_VALID();
         static InferenceEngine::details::caseless_set<std::string> activations =
-            { "clamp", "sigmoid", "identity", "relu",
-              "leakyrelu", "tanh", "prelu", "exp", "log", "sign", "abs", "neghalflog", "softsign"};
+            {"clamp",
+             "sigmoid",
+             "identity",
+             "relu",
+             "leakyrelu",
+             "tanh",
+             "prelu",
+             "exp",
+             "log",
+             "sign",
+             "abs",
+             "neglog",
+             "neghalflog",
+             "softsign"};
         return activations.find(layer->type) != activations.end();
     }
 

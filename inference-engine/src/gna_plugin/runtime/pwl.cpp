@@ -30,7 +30,12 @@
 #include "round_float_define.hpp"
 
 double first_deriv_tanh(const double x) { return(1.0 - tanh(x) * tanh(x)); }
-
+double first_deriv_exp(const double x) { return(exp(x)); }
+double first_deriv_log(const double x) { return(1.0 / x); }
+double neglog(const double x) { return(-1.0*log(x)); }
+double neghalflog(const double x) { return(-0.5*log(x)); }
+double first_deriv_neglog(const double x) { return(-1.0 / x); }
+double first_deriv_neghalflog(const double x) { return(-0.5 / x); }
 double sigmoid(const double x) { return(0.5 * (1.0 + tanh(x / 2))); }
 double first_deriv_sigmoid(const double x) { return(sigmoid(x) * (1.0 - sigmoid(x))); }
 double softsign(const double x) { return(x / (1.0 + fabs(x))); }
@@ -120,7 +125,7 @@ double pivot_search(std::vector<pwl_t>& result, double(*f)(const double),
             value.beta = sgn * first_deriv_f(t[N - 1][j]) * (alpha[N][j] - t[N - 1][j]) + sgn * f(t[N - 1][j]) - epsilon_final;
             result.push_back(value);
             if (j == PWL_MAX_ITERATIONS) {
-                std::cerr << "Error:  failed to converge in pivot_search!" << std::endl;
+                THROW_GNA_EXCEPTION << "Failed to converge in pivot_search!";
             }
             return(epsilon_final);
         }
@@ -173,11 +178,26 @@ double calculate_error_pct(const DnnActivationType fun,
 
     switch (fun) {
         case kActSigmoid:
-            min_val = max_val = sigmoid(l_bound); break;
+            min_val = max_val = sigmoid(l_bound);
+            break;
         case kActTanh:
-            min_val = max_val = tanh(l_bound); break;
+            min_val = max_val = tanh(l_bound);
+            break;
+        case kActExp:
+            min_val = max_val = exp(l_bound);
+            break;
+        case kActLog:
+            min_val = max_val = log(l_bound);
+            break;
+        case kActNegLog:
+            min_val = max_val = neglog(l_bound);
+            break;
+        case kActNegHalfLog:
+            min_val = max_val = neghalflog(l_bound);
+            break;
         case kActSoftSign:
-            min_val = max_val = softsign(l_bound); break;
+            min_val = max_val = softsign(l_bound);
+            break;
         default:
             break;
     }
@@ -194,6 +214,18 @@ double calculate_error_pct(const DnnActivationType fun,
                 break;
             case kActSoftSign:
                 val = softsign(arg);
+                break;
+            case kActExp:
+                val = exp(arg);
+                break;
+            case kActLog:
+                val = log(arg);
+                break;
+            case kActNegLog:
+                val = neglog(arg);
+                break;
+            case kActNegHalfLog:
+                val = neghalflog(arg);
                 break;
             default:
                 break;
@@ -217,14 +249,15 @@ bool split_search(const DnnActivationType fun,
         case kActSigmoid:
         case kActTanh:
         case kActSoftSign:
-            if ((l_bound < 0.0) && (u_bound > 0.0)) {
-                is_split = true;
-            }
+            is_split = ((l_bound < 0.0) && (u_bound > 0.0));
+            break;
+        case kActExp:
+            is_split = ((l_bound < EXP_BREAK) && (u_bound > EXP_BREAK));
             break;
         default:
             is_split = false;
     }
-    return(is_split);
+    return is_split;
 }
 
 inline std::vector<pwl_t> negative_pwl(const std::vector<pwl_t>& pwl) {
@@ -258,11 +291,15 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
     if (split_search(fun, l_bound, u_bound)) {
         std::vector<pwl_t> pwl2;
         double err_pct1 = 0.0, err_pct2 = 0.0;
+        const double break_bound = (fun == kActExp ? EXP_BREAK : 0.0);
 
-        pwl = pwl_search(fun, l_bound, 0.0, threshold, allowed_err_pct, samples, err_pct1);
+        pwl = pwl_search(fun, l_bound, break_bound, threshold, allowed_err_pct, samples, err_pct1);
         pwl = negative_pwl(pwl);
-        pwl2 = pwl_search(fun, 0.0, u_bound, threshold, allowed_err_pct, samples, err_pct2);
+        pwl2 = pwl_search(fun, break_bound, u_bound, threshold, allowed_err_pct, samples, err_pct2);
 
+        if (fun == kActExp) {
+            pwl2 = negative_pwl(pwl2);
+        }
         // merge
         pwl.pop_back();  // remove final alpha and beta from first half
         pwl.insert(pwl.end(), pwl2.begin(), pwl2.end());  // concatenate the two halves
@@ -290,6 +327,31 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
             pwl[2].b = KALDI_LSTM_CLIP_UPPER;
             pwl[3].alpha = pwl[3].beta = std::numeric_limits<float>::infinity();
 
+        } else if (fun == kActSign) {
+            pwl.resize(4);
+            pwl[0].alpha = pwl[0].t = -std::numeric_limits<float>::infinity();
+            pwl[0].m = 0.0;
+            pwl[0].b = pwl[0].beta = -1.0;
+            pwl[1].alpha = -0.000001;  // define interval between integer -1 and +1
+            pwl[1].t = 0.0;
+            pwl[1].beta = -1.0;
+            pwl[1].m = 0.0;  // sign of zero is zero
+            pwl[1].b = 0.0;
+            pwl[2].alpha = 0.000001;  // define interval between integer -1 and +1
+            pwl[2].t = std::numeric_limits<float>::infinity();
+            pwl[2].beta = pwl[2].b = 1.0;
+            pwl[2].m = 0.0;
+            pwl[3].alpha = pwl[3].beta = std::numeric_limits<float>::infinity();
+
+        } else if (fun == kActAbs) {
+                pwl.resize(2);
+                pwl[0].alpha = pwl[0].t = pwl[0].beta = -std::numeric_limits<float>::infinity();
+                pwl[0].m = -1.0;
+                pwl[0].b = 0.0;
+                pwl[1].alpha = pwl[1].t = pwl[1].beta = std::numeric_limits<float>::infinity();
+                pwl[1].m = 1.0;
+                pwl[1].b = 0.0;
+
         } else {
             bool negative = false;
 
@@ -305,6 +367,21 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
                 case kActSoftSign:
                     if (u_bound == 0) negative = true;  // make left half convex
                     err = pivot_search(pwl, softsign, first_deriv_softsign, n_segments, l_bound, u_bound, threshold, negative);
+                    break;
+                case kActExp:
+                    negative = true;  // make function convex
+                    err = pivot_search(pwl, exp, first_deriv_exp, n_segments, l_bound, u_bound, threshold, negative);
+                    break;
+                case kActLog:
+                    err = pivot_search(pwl, log, first_deriv_log, n_segments, l_bound, u_bound, threshold, negative);
+                    break;
+                case kActNegLog:
+                    negative = true;  // make function convex
+                    err = pivot_search(pwl, neglog, first_deriv_neglog, n_segments, l_bound, u_bound, threshold, negative);
+                    break;
+                case kActNegHalfLog:
+                    negative = true;  // make function convex
+                    err = pivot_search(pwl, neghalflog, first_deriv_neghalflog, n_segments, l_bound, u_bound, threshold, negative);
                     break;
                 default:
                     break;
@@ -323,6 +400,18 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
                     case kActSoftSign:
                         err = pivot_search(pwl, softsign, first_deriv_softsign, n_segments, l_bound, u_bound, threshold, negative);
                             break;
+                    case kActExp:
+                        err = pivot_search(pwl, exp, first_deriv_exp, n_segments, l_bound, u_bound, threshold, negative);
+                        break;
+                    case kActLog:
+                        err = pivot_search(pwl, log, first_deriv_log, n_segments, l_bound, u_bound, threshold, negative);
+                        break;
+                    case kActNegLog:
+                        err = pivot_search(pwl, neglog, first_deriv_neglog, n_segments, l_bound, u_bound, threshold, negative);
+                        break;
+                    case kActNegHalfLog:
+                        err = pivot_search(pwl, neghalflog, first_deriv_neghalflog, n_segments, l_bound, u_bound, threshold, negative);
+                        break;
                     default:
                         break;
                 }
@@ -330,7 +419,7 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
             }
 
             if (n_segments >= PWL_MAX_ITERATIONS) {
-                std::cerr << "Error:  failed to converge in pwl_search!" << std::endl;
+                THROW_GNA_EXCEPTION << "Failed to converge in pwl_search!";
             }
         }
     }
@@ -368,6 +457,40 @@ void PwlDesignOpt16(const DnnActivation activation_type,
             break;
         case kActKaldiLstmClipping:
             make_gna_pwl(activation_type, pwl, KALDI_LSTM_CLIP_LOWER, KALDI_LSTM_CLIP_UPPER, scale_in, scale_out, ptr_segment);
+            break;
+        case kActLog: {
+            double x_min = (1 + ~XBASEMASK) / scale_in;
+            double x_max = ((INT32_MAX / scale_in) < LOG_DOMAIN) ? (INT32_MAX / scale_in) : LOG_DOMAIN;
+            pwl = pwl_search(kActLog, x_min, x_max, PWL_DESIGN_THRESHOLD, 0.066*PWL_MAX_ERR_PERCENT, PWL_DESIGN_SAMPLES, err_pct);
+            make_gna_pwl(activation_type, pwl, x_min, x_max, scale_in, scale_out, ptr_segment);
+            break;
+        }
+        case kActNegLog: {
+            double x_min = (1 + ~XBASEMASK) / scale_in;
+            double x_max = ((INT32_MAX / scale_in) < LOG_DOMAIN) ? (INT32_MAX / scale_in) : LOG_DOMAIN;
+            pwl = pwl_search(kActNegLog, x_min, x_max, PWL_DESIGN_THRESHOLD, 0.066*PWL_MAX_ERR_PERCENT, PWL_DESIGN_SAMPLES, err_pct);
+            make_gna_pwl(activation_type, pwl, x_min, x_max, scale_in, scale_out, ptr_segment);
+            break;
+        }
+        case kActNegHalfLog: {
+            double x_min = (1 + ~XBASEMASK) / scale_in;
+            double x_max = ((INT32_MAX / scale_in) < LOG_DOMAIN) ? (INT32_MAX / scale_in) : LOG_DOMAIN;
+            pwl = pwl_search(kActNegHalfLog, x_min, x_max, PWL_DESIGN_THRESHOLD, 0.066*PWL_MAX_ERR_PERCENT, PWL_DESIGN_SAMPLES, err_pct);
+            make_gna_pwl(activation_type, pwl, x_min, x_max, scale_in, scale_out, ptr_segment);
+            break;
+        }
+        case kActExp: {
+            double x_min = -log(scale_out);
+            double x_max = x_min + log(INT16_MAX);
+            pwl = pwl_search(kActExp, x_min, x_max, PWL_DESIGN_THRESHOLD, 0.5*PWL_MAX_ERR_PERCENT, PWL_DESIGN_SAMPLES, err_pct);
+            make_gna_pwl(activation_type, pwl, x_min, x_max, scale_in, scale_out, ptr_segment);
+            break;
+        }
+        case kActSign:
+            make_gna_pwl(activation_type, pwl, -1.0, 1.0, scale_in, scale_out, ptr_segment);
+            break;
+        case kActAbs:
+            make_gna_pwl(activation_type, pwl, -1.0, 1.0, scale_in, scale_out, ptr_segment);
             break;
         default:
             break;
@@ -519,8 +642,7 @@ void PwlDesign16(const DnnActivation activation_type,
             }
             break;
         case kActRelu:
-            std::cerr << "Rectilinear activation function design not yet implemented!" << std::endl;
-            throw -1;
+            THROW_GNA_EXCEPTION << "Rectilinear activation function design not yet implemented!";
         case kActIdentity:
         case kActKaldiLstmClipping:  // clipping of IDENTITY is more aggressive than Kaldi
             {
@@ -694,9 +816,7 @@ void PwlApply32(intel_dnn_component_t *component,
             for (uint32_t i = num_row_start; i <= num_row_end; i++) {
                 for (uint32_t j = num_col_start; j <= num_col_end; j++) {
                     ptr_out[i * num_columns + j] =
-                            (ptr_in[i * num_columns + j] < 0.0f) ? ptr_in[i * num_columns + j] *
-                                                                   transform->func_id.negative_slope : ptr_in[
-                                    i * num_columns + j];
+                        (ptr_in[i * num_columns + j] < 0.0f) ? ptr_in[i * num_columns + j] * transform->func_id.negative_slope : ptr_in[i * num_columns + j];
                 }
             }
             break;
@@ -718,6 +838,48 @@ void PwlApply32(intel_dnn_component_t *component,
                     } else {
                         ptr_out[i * num_columns + j] = val;
                     }
+                }
+            }
+            break;
+        case kActExp:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = exp(ptr_in[i * num_columns + j]);
+                }
+            }
+            break;
+        case kActLog:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = log(ptr_in[i * num_columns + j]);
+                }
+            }
+            break;
+        case kActAbs:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = fabs(ptr_in[i * num_columns + j]);
+                }
+            }
+            break;
+        case kActSign:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = (ptr_in[i * num_columns + j] == 0) ? 0.0 : ((ptr_in[i * num_columns + j] > 0) ? 1.0 : -1.0);
+                }
+            }
+            break;
+        case kActNegLog:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = -1.0 * log(ptr_in[i * num_columns + j]);
+                }
+            }
+            break;
+        case kActNegHalfLog:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = -0.5 * log(ptr_in[i * num_columns + j]);
                 }
             }
             break;

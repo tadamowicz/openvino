@@ -19,6 +19,12 @@ enum DnnActivationType : uint8_t {
     kActIdentity,
     kActKaldiLstmClipping,
     kActCustom,
+    kActExp,
+    kActLog,
+    kActSign,
+    kActAbs,
+    kActNegLog,
+    kActNegHalfLog,
     kActSoftSign,
     kActNumType
 };
@@ -48,6 +54,12 @@ static const char *intel_dnn_activation_name[kActNumType] = {
         "kActLeakyRelu",
         "kActIdentity",
         "kActKaldiLstmClipping",
+        "kActExp",
+        "kActLog",
+        "kActSign",
+        "kActAbs",
+        "kActNegLog",
+        "kActNegHalfLog",
         "kActCustom",
         "kActSoftSign"
 };
