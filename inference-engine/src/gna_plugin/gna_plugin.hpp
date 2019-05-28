@@ -347,13 +347,15 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     using MemoryConnection = std::list<std::pair<std::string, GNAMemoryLayer>>;
     using ConcatConnection = std::unordered_map<std::string, GNAConcatLayer>;
     using SplitConnection  = std::unordered_map<std::string, GNASplitLayer>;
-    using CropConnection  = std::unordered_map<std::string, GNACropLayer>;
+    using CropConnection   = std::unordered_map<std::string, GNACropLayer>;
+    using ConstConnections  = std::unordered_map<std::string, void*>;
     // layers with extra storage for connections and additional
     // non trivial processing
     MemoryConnection memory_connection;
     ConcatConnection concat_connection;
     SplitConnection  split_connection;
     CropConnection   crop_connection;
+    ConstConnections const_connections;
     void fillMemoryConnections(std::unordered_map<std::string,
                                  std::vector<InferenceEngine::CNNLayerPtr>> &memoryPairs);
 

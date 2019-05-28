@@ -34,6 +34,7 @@
 #include <ie_layers.h>
 #include "details/caseless.hpp"
 #include <gna-api-types-xnn.h>
+#include <ie_util_internal.hpp>
 #include "gna-api.h"
 #include "gna-api-dumper.h"
 #include "dnn.h"
@@ -450,6 +451,8 @@ void  GNAPlugin::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
 
     void * ptr_for_const_blob = &ptr_for_const_blob;
     connectOutput(constLayer, ptr_for_const_blob, constBlob->size());
+
+    const_connections[constLayer->name] = ptr_for_const_blob;
 
     // TODO: segment type for bind, bind initializer not used - need refactor to separate bind and allocation requests
     // dont see practical use case when bind storage type need to be different that allocation type
@@ -1622,6 +1625,14 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     auto newNet = supported.find_configuration(network).convert(network);
 
+#ifdef PLOT
+    std::ofstream file("gna_passes.dot");
+    saveGraphToDot(*newNet, file, [](const CNNLayerPtr layer,
+    ordered_properties &printed_properties,
+    ordered_properties &node_properties) {});
+#endif
+
+
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
     std::vector<CNNLayerPtr> sortedNoMem;
     std::unordered_map<std::string, std::vector<InferenceEngine::CNNLayerPtr>> memoryPairs;
@@ -2634,6 +2645,16 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
             gnamem->bind_ptr(ptr, &get_ptr_inputs_global(prevLayer->name).front(), offset);
         } else {
             gnamem->bind_ptr(&get_ptr_inputs_global(prevLayer->name).front(), ptr, -offset);
+        }
+
+        return prevLayer;
+    }
+    // const input
+    if (LayerInfo(prevLayer).isConst()) {
+        if (offset >= 0) {
+            gnamem->bind_ptr(ptr, const_connections[prevLayer->name], offset);
+        } else {
+            gnamem->bind_ptr(const_connections[prevLayer->name], ptr, -offset);
         }
 
         return prevLayer;

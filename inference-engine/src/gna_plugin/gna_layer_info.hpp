@@ -47,7 +47,7 @@ class LayerInfo {
     }
     bool has16BOutput() const noexcept {
         IS_VALID();
-        static InferenceEngine::details::caseless_set<std::string> layersWith16BOutputs = {"memory", "input", "split", "slice", "concat", "copy"};
+        static InferenceEngine::details::caseless_set<std::string> layersWith16BOutputs = {"memory", "input", "split", "slice", "concat", "copy", "const"};
         return layersWith16BOutputs.find(layer->type) != layersWith16BOutputs.end() ||
                                                                         isActivation() ||
                                                             (isCrop() && !isCropAffined());
