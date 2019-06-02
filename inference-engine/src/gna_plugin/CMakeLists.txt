@@ -23,6 +23,7 @@ include_directories(
 add_definitions(-D_NO_MKL_)
 
 ie_add_plugin(NAME ${TARGET_NAME}
+              DEVICE_NAME "GNA"
               SOURCES ${SOURCES} ${HEADERS})
 
 if (LINUX)
