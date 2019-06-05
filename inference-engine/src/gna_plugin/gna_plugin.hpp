@@ -229,18 +229,30 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     bool AreLayersSupported(InferenceEngine::ICNNNetwork& network, std::string& errMessage);
     LayerType LayerTypeFromStr(std::string const &str) const;
     /**
-     * maps tpe of connection to input and output layers also stores gna_pointer for alloc request
+     * maps type of connection to input and output layers also stores gna_pointer for alloc request
      */
     class GNAMemoryLayer {
         InferenceEngine::CNNLayerPtr inputLayer;
         InferenceEngine::CNNLayerPtr outputLayer;
+        const int elementSize;
+
      public:
-        GNAMemoryLayer(InferenceEngine::CNNLayerPtr inLayer, InferenceEngine::CNNLayerPtr outLayer) :
-            inputLayer(inLayer), outputLayer(outLayer) {
+        GNAMemoryLayer(InferenceEngine::CNNLayerPtr inLayer, InferenceEngine::CNNLayerPtr outLayer, int elementSize) :
+            inputLayer(inLayer), outputLayer(outLayer), elementSize(elementSize) {
         }
 
-        InferenceEngine::CNNLayerPtr getInput() { return inputLayer; }
-        InferenceEngine::CNNLayerPtr getOutput() { return outputLayer; }
+        InferenceEngine::CNNLayerPtr getInput() const { return inputLayer; }
+        InferenceEngine::CNNLayerPtr getOutput() const { return outputLayer; }
+        InferenceEngine::SizeVector getDims() const {
+            return inputLayer->outData.front()->getDims();
+        }
+
+        /**
+         * @brief possible to store memory in different precision
+         */
+        int elementSizeBytes() const {
+            return elementSize;
+        }
 
         /**
          * pointer to gna memory request

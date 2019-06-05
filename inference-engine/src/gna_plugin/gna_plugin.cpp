@@ -343,7 +343,7 @@ void GNAPlugin::ImportFrames(
 }
 
 void GNAPlugin::fillMemoryConnections(std::unordered_map<std::string,
-                                            std::vector<InferenceEngine::CNNLayerPtr>>& memoryPairs) {
+                                      std::vector<InferenceEngine::CNNLayerPtr>>& memoryPairs) {
     for (auto &memory : memoryPairs) {
         auto inputLayer = memory.second[1];
         auto outputLayer = memory.second[0];
@@ -351,7 +351,7 @@ void GNAPlugin::fillMemoryConnections(std::unordered_map<std::string,
         IE_ASSERT(1 == outputLayer->insData.size());
 
         // creating connection for layers output as form of extramap
-        memory_connection.emplace_back(memory.first, GNAMemoryLayer(inputLayer, outputLayer));
+        memory_connection.emplace_back(memory.first, GNAMemoryLayer(inputLayer, outputLayer, sw_fp32 ? 4 : 2));
     }
 }
 
@@ -792,11 +792,11 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
         auto concatLayerInput = concat_connection.find(concatLayer->name)->second.getConcat();
         int it = 0;
 
-        for (auto& insData : concatLayerInput->insData) {
-            if (insData.lock()->getName().find(inputLayer.name) != std::string::npos) {
+        for (; it != concatLayerInput->insData.size(); it++) {
+            auto parent = CNNNetPrevLayer(concatLayerInput, it);
+            if (parent->name.find(inputLayer.name) != std::string::npos) {
                 break;
             }
-            ++it;
         }
         IE_ASSERT(it != concatLayerInput->insData.size());
         auto layerInfo = LayerInfo(concatLayerInput->insData[it].lock()->getCreatorLayer().lock());
@@ -2242,7 +2242,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     num_rotate_columns = header.nRotateColumns;
 
     for (auto && memory : mt) {
-        GNAMemoryLayer memoryLayer(nullptr, nullptr);
+        GNAMemoryLayer memoryLayer(nullptr, nullptr, sw_fp32 ? 4 : 2);
         memoryLayer.gna_ptr = memory.first;
         memoryLayer.reserved_size = memory.second;
 
@@ -2539,14 +2539,14 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
                 auto &nextMemoryLayer = nextMemoryLayerIt->second;
                 // memory layer not yet initialized
                 if (nextMemoryLayer.reserved_size == 0) {
-                    gnamem->reserve_ptr(&nextMemoryLayer.gna_ptr, ALIGN64(num_data_bytes_out));
+                    auto memorySize = InferenceEngine::details::product(nextMemoryLayer.getDims()) * nextMemoryLayer.elementSizeBytes();
+
+                    gnamem->reserve_ptr(&nextMemoryLayer.gna_ptr, ALIGN64(memorySize));
                     gnamem->bind_ptr(ptr, &nextMemoryLayer.gna_ptr, 0);
 
-                    nextMemoryLayer.reserved_offset = 0;
-                    nextMemoryLayer.reserved_size = ALIGN64(num_data_bytes_out);
+                    nextMemoryLayer.reserved_size = ALIGN64(memorySize);
                 } else {
-                    IE_ASSERT(nextMemoryLayer.reserved_size == ALIGN64(num_data_bytes_out));
-                    // same offsets
+                    IE_ASSERT(nextMemoryLayer.reserved_size >= ALIGN64(num_data_bytes_out));
                     gnamem->bind_ptr(ptr, &nextMemoryLayer.gna_ptr, 0);
                 }
                 return;
@@ -2568,7 +2568,7 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
             std::list<CNNLayerPtr> split;
             for (auto &&outLayer : layer->outData.front()->getInputTo()) {
                 auto nextLayer = outLayer.second;
-                if (LayerInfo(nextLayer).isSplit()) {
+                if (LayerInfo(nextLayer).isSplit() || LayerInfo(nextLayer).isReshape()) {
                     split.push_back(nextLayer);
                 }
             }
@@ -2585,7 +2585,7 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
         while (!concat && !splits.empty()) {
             auto firstSplit = splits.front();
             concat = concatChild(firstSplit);
-            // now concat prev layer whould be t
+            // now concat prev layer would be this one
             concatFather = firstSplit;
             if (concat) {
                 break;
@@ -2785,17 +2785,18 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
         });
     if (prevMemoryLayer != memory_connection.end()) {
         // dnnLayer that is input for memory output layer
+        // TODO: this is duplicate with connect output
         auto& memoryLayer = prevMemoryLayer->second;
         if (memoryLayer.reserved_size == 0) {
-            gnamem->reserve_ptr(&memoryLayer.gna_ptr, ALIGN64(num_data_bytes_in));
+            auto memorySize = InferenceEngine::details::product(memoryLayer.getDims()) * memoryLayer.elementSizeBytes();
+
+            gnamem->reserve_ptr(&memoryLayer.gna_ptr, ALIGN64(memorySize));
             gnamem->bind_ptr(ptr, &memoryLayer.gna_ptr, offset);
 
-            memoryLayer.reserved_offset = offset;
-            memoryLayer.reserved_size = ALIGN64(num_data_bytes_in);
+            memoryLayer.reserved_size = ALIGN64(memorySize);
         } else {
-            IE_ASSERT(memoryLayer.reserved_size == ALIGN64(num_data_bytes_in));
-            // same offsets
-            gnamem->bind_ptr(ptr, &memoryLayer.gna_ptr, memoryLayer.reserved_offset);
+            IE_ASSERT(memoryLayer.reserved_size >= ALIGN64(num_data_bytes_in));
+            gnamem->bind_ptr(ptr, &memoryLayer.gna_ptr, offset);
         }
 
         return prevLayer;
