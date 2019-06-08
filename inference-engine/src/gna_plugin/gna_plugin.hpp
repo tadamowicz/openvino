@@ -287,7 +287,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         };
 
         std::vector<ConcatConnectedLayerInfo> concatInputLayers;
-//        std::vector<size_t> concatInputLayers;
     };
 
     // Split, Slice

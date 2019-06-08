@@ -94,7 +94,10 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
 
         // for  mul if we have 2-2 - OK
         // for  mul if we have 2-4 - inputs we need to insert identity activation to make 2 bytes input
-        // for  mul if we have 4-4 - inputs we need to insert 2 identities activations  to put 2 bytes input and weights
+        // for  mul if we have 4-4 - there 2 options
+        //          option 1 both inputs came from single outdata  - we will insert 1 identity  to just convert single input into 2 bytes
+        //          option 2 each input came from it's own outdata - we need to insert 2 identities activations to convert both and feed weights and inputs
+
         auto prev0 = CNNNetPrevLayer(l, 0);
         auto prev1 = CNNNetPrevLayer(l, 1);
         switch (eltwise->_operation) {
@@ -105,7 +108,7 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
                 // TODO: whether there are possibility to select after what layer identity gets inserted
                 prevLayers.push_back(prev0);
                 break;
-            case EltwiseLayer::Prod:
+            case EltwiseLayer::Prod: {
                 if (LayerInfo(prev0).has16BOutput() && LayerInfo(prev1).has16BOutput()) {
                     return prevLayers;
                 }
@@ -114,11 +117,16 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
                     prevLayers.push_back(prev0);
                 }
 
-                if (LayerInfo(prev1).has32BOutput()) {
-                    prevLayers.push_back(prev1);
+                // if layers of outdata are different
+                auto prevData0 = l->insData[0].lock();
+                auto prevData1 = l->insData[1].lock();
+
+                if ((prev0 != prev1 || prevData0 != prevData1) && LayerInfo(prev1).has32BOutput()) {
+                        prevLayers.push_back(prev1);
                 }
 
                 break;
+            }
             default :
                 THROW_GNA_EXCEPTION << "Eltwise Layer of type: " << eltwise->_operation << " not supported";
         }
@@ -442,8 +450,8 @@ void InsertIdentityLayerPass::run() {
                                                              newDims,
                                                              inputData->layout));
             auto activationLayerWithQuant = quantized ?
-                                    InferenceEngine::injectData<QuantizedLayerParams>(activationLayer) :
-                                                                                            activationLayer;
+                                            InferenceEngine::injectData<QuantizedLayerParams>(activationLayer) :
+                                            activationLayer;
             dataPtr->creatorLayer = activationLayerWithQuant;
             activationLayerWithQuant->outData.push_back(dataPtr);
             // wether 1 identity or all outputs TODO possible grouping here, need to implement special groupped inserter
@@ -681,19 +689,16 @@ void PassManager::run() {
         auto layers = CNNNetSortTopologically(*network.get());
         pass->attach(layers);
         gnalog() << "PASS: " << ++index << "/" << passes.size() << ":" << pass->getName() << "\n";
-        pass->run();
-
-// #define PLOT_PASSES
-#ifdef PLOT_PASSES
+#ifdef PLOT
         std::string name = "gna_passes" + std::to_string(index) + ".dot";
         std::ofstream out(name);
         saveGraphToDot(*network.get(), out, [](const CNNLayerPtr layer,
                                          ordered_properties &printed_properties,
                                          ordered_properties &node_properties) {});
 #endif
+        pass->run();
     }
 }
-
 
 void UnrollLSTMCellPass::run() {
     for (auto& layer : *pLayers) {
@@ -723,6 +728,9 @@ void UnrollTIPass::run() {
         if (layer->type != "TensorIterator")
             continue;
 
-        InferenceEngine::NetPass::UnrollTI(*getPassManager()->getNetwork());
+        auto sts = InferenceEngine::NetPass::UnrollTI(*getPassManager()->getNetwork());
+        if (!sts) {
+            THROW_GNA_EXCEPTION << "Layer: " << layer->name << " was not unrolled!";
+        }
     }
 }

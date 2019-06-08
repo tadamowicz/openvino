@@ -32,9 +32,9 @@
 #include <memory>
 #include <dnn_memory.hpp>
 #include <ie_layers.h>
+#include <ie_util_internal.hpp>
 #include "details/caseless.hpp"
 #include <gna-api-types-xnn.h>
-#include <ie_util_internal.hpp>
 #include "gna-api.h"
 #include "gna-api-dumper.h"
 #include "dnn.h"
@@ -487,7 +487,7 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto &currentComponent = dnnComponentsForLayer.back().second;
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " convolution_" << dnnComponentsForLayer.size() - 1 << "\n";
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " convolution_" << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
     auto num_input_padding = ALIGN(num_feature_maps * num_feature_map_columns * num_feature_map_rows, 8)
                                                         -  num_feature_maps * num_feature_map_columns * num_feature_map_rows;
@@ -627,7 +627,7 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             true);
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << "\n";
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
 
     size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
@@ -683,7 +683,7 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto &currentComponent = dnnComponentsForLayer.back().second;
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << dnnComponentsForLayer.size() - 1 << "\n";
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
     switch (pooling._type) {
         case PoolingLayer::MAX: break;
@@ -960,7 +960,7 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
                             true);
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << "\n";
+    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
 
     size_t num_data_bytes_out =
@@ -1039,7 +1039,8 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     auto &currentComponent = dnnComponentsForLayer.back().second;
 
 #ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << (isDiag ? " diagonal_" : " affine_") << dnnComponentsForLayer.size() - 1 << "\n";
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << (isDiag ? " diagonal_" : " affine_")
+              << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
 
     dnn.InitAffineComponent(currentComponent,
@@ -1065,6 +1066,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
 
     auto connectionInfo = connectInput(layer, useBiasConnection ? ptr_biases : ptr_inputs, num_data_bytes_in);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
+    // gnamem->bind_ptr(ptr_biases, &ptr_outputs);
 
     auto transpose = false;
     auto transposedRows = 0;
@@ -1205,7 +1207,7 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 #ifdef  PLOT
-    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << "\n";
+    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
     auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->precision() : outputs->precision;
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
@@ -1399,7 +1401,7 @@ case name:\
         GET_ACTIVATION_NAME(kActKaldiLstmClipping);
         GET_ACTIVATION_NAME(kActIdentity);
     }
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " " << actName << "_" << dnnComponentsForLayer.size() - 1 <<"\n";
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " " << actName << "_" << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
@@ -2115,6 +2117,14 @@ void GNAPlugin::Wait(uint32_t idx) {
         }
 #endif
     }
+#ifdef PLOT
+    dnn.BeginNewWrite();
+    if (dnn.num_components() != 0) {
+        dnn.WriteDnnText("Net_.txt", kDnnFloat);
+        dnn.WriteInputAndOutputText();
+    }
+    dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets.front())->obj);
+#endif
 }
 
 void GNAPlugin::Reset() {
@@ -2130,10 +2140,10 @@ void GNAPlugin::Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob 
     BlobMap bmInput;
     BlobMap bmOutput;
     if (inputsDataMap.size() != 1) {
-        THROW_GNA_EXCEPTION << "cannot infer using Infer(Blob&, Blob&)"<< "model accepts " << inputsDataMap.size() << "inputs";
+        THROW_GNA_EXCEPTION << "cannot infer using Infer(Blob&, Blob&)"<< "model accepts " << inputsDataMap.size() << " inputs";
     }
     if (outputsDataMap.size() != 1) {
-        THROW_GNA_EXCEPTION << "cannot infer using Infer(Blob&, Blob&)"<< "model accepts " << outputsDataMap.size() << "outputs";
+        THROW_GNA_EXCEPTION << "cannot infer using Infer(Blob&, Blob&)"<< "model accepts " << outputsDataMap.size() << " outputs";
     }
 
     bmInput[inputsDataMap.begin()->first] = std::shared_ptr<Blob>(const_cast<Blob*>(&input), [](Blob*){});
@@ -2388,7 +2398,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
             if (value == GNA_CONFIG_VALUE(SW_FP32)) {
                 sw_fp32 = true;
             } else {
-                THROW_GNA_EXCEPTION << "Unsupported GNA device mode: " << value;
+                THROW_GNA_EXCEPTION << "GNA device mode unsupported: " << value;
             }
         } else {
             gna_proc_type = static_cast<intel_gna_proc_t>(procType->second);
@@ -2600,10 +2610,7 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
                                     }
                                     IE_ASSERT(i != concatLayerInput->insData.size());
                                     auto layerInfo = LayerInfo(concatLayerInput->insData[i].lock()->getCreatorLayer().lock());
-//                                    if (layerInfo.isInput() || layerInfo.isSplit()) {
                                     if (layerInfo.isInput()) {
-//                                    if (InferenceEngine::details::CaselessEq<std::string>()
-//                                            (inputLayer.name, "input")) {
                                         bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
                                     }
                                 }
