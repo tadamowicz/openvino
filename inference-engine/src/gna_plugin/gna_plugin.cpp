@@ -1560,7 +1560,6 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
 }
 
 void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
-    IE_PROFILING_AUTO_SCOPE(GNAPlugin::LoadNetwork)
     //  Check the input network
     std::string error;
     if (!AreLayersSupported(network, error)) {
