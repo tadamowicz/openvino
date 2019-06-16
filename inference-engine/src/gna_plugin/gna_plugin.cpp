@@ -452,6 +452,8 @@ void  GNAPlugin::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
     void * ptr_for_const_blob = &ptr_for_const_blob;
     connectOutput(constLayer, ptr_for_const_blob, constBlob->size());
 
+    const_connections[constLayer->name] = ptr_for_const_blob;
+
     // TODO: segment type for bind, bind initializer not used - need refactor to separate bind and allocation requests
     // dont see practical use case when bind storage type need to be different that allocation type
     gnamem->readonly().bind_initializer(ptr_for_const_blob, [constBlob](void * data, size_t size) {
@@ -798,7 +800,7 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
         }
         IE_ASSERT(it != concatLayerInput->insData.size());
         auto layerInfo = LayerInfo(concatLayerInput->insData[it].lock()->getCreatorLayer().lock());
-        if (layerInfo.isInput() || layerInfo.isSplit()) {
+        if (layerInfo.isInput()) {
             connectInput(layer, &concatLayerInfo.gna_ptr,
                                 concatLayerInfo.reserved_size-inputLayer.offset, static_cast<int32_t>(-inputLayer.offset), idx);
         }
@@ -2559,71 +2561,98 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
             }
         }
 
-        // if one of next layers is concat...
-        for (auto &&outLayer : layer->outData.front()->getInputTo()) {
-            auto nextLayer = outLayer.second;
-            if ( LayerInfo(nextLayer).isConcat() ) {
-                auto& name = layer->name;
-                // we look for this concat layer pointer in extra concat map
-                auto concatLayerInfo = concat_connection.find(
-                                nextLayer->name);
-
-                if (concatLayerInfo != concat_connection.end()) {
-                    auto &concatLayerInfoItem = concatLayerInfo->second;
-
-                    // find this input in vector sum all outputs in primitive
-                    auto it = std::find_if(concatLayerInfoItem.concatInputLayers.begin(),
-                                            concatLayerInfoItem.concatInputLayers.end(),
-                                            [&name](GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) {
-                                                return item.name == name;
-                                            });
-                    if (it != concatLayerInfoItem.concatInputLayers.end()) {
-                        // reserve full size for concat
-                        if (!concatLayerInfoItem.output_allocation_flag) {
-                            // check if this concat is being included by other one
-                            // by going thru each concat and checking inputs
-                            auto included =
-                                    std::find_if(concat_connection.begin(),
-                                                 concat_connection.end(),
-                                                 [&concatLayerInfo]
-                                                         (const std::pair<std::string, GNAPlugin::GNAConcatLayer> &concatItem) -> bool {
-                                                     auto it = std::find_if(concatItem.second.concatInputLayers.begin(),
-                                                                            concatItem.second.concatInputLayers.end(),
-                                                                            [&concatLayerInfo]
-                                                                                    (const GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) -> bool {
-                                                                                return item.name == concatLayerInfo->first;
-                                                                            });
-                                                     return it != concatItem.second.concatInputLayers.end();
-                                                 });
-                            if (included == concat_connection.end()) {
-                                gnamem->reserve_ptr(&concatLayerInfoItem.gna_ptr, ALIGN64(concatLayerInfoItem.reserved_size));
-
-                                for (auto &&inputLayer : concatLayerInfoItem.concatInputLayers) {
-                                    auto concatLayerInput = concat_connection.begin()->second.getConcat();
-                                    int i = 0;
-
-                                    for (auto& insData : concatLayerInput->insData) {
-                                        if (insData.lock()->getName().find(inputLayer.name) != std::string::npos) {
-                                            break;
-                                        }
-                                        ++i;
-                                    }
-                                    IE_ASSERT(i != concatLayerInput->insData.size());
-                                    auto layerInfo = LayerInfo(concatLayerInput->insData[i].lock()->getCreatorLayer().lock());
-                                    if (layerInfo.isInput()) {
-                                        bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
-                                    }
-                                }
-                            }
-                            concatLayerInfo->second.output_allocation_flag = true;
-                        }
-                        gnamem->bind_ptr(ptr, &concatLayerInfoItem.gna_ptr, it->offset);
-                    }
-                } else {
-                    // error
+        // if one of next direct or via split layers is concat...
+        auto concatChild = [](CNNLayerPtr layer) {
+            CNNLayerPtr concat;
+            for (auto &&outLayer : layer->outData.front()->getInputTo()) {
+                auto nextLayer = outLayer.second;
+                if (LayerInfo(nextLayer).isConcat()) {
+                    concat = nextLayer;
                 }
-                return;
             }
+            return concat;
+        };
+        auto splitChild = [](CNNLayerPtr layer) {
+            std::list<CNNLayerPtr> split;
+            for (auto &&outLayer : layer->outData.front()->getInputTo()) {
+                auto nextLayer = outLayer.second;
+                if (LayerInfo(nextLayer).isSplit()) {
+                    split.push_back(nextLayer);
+                }
+            }
+            return split;
+        };
+
+        std::list<CNNLayerPtr> splits;
+        auto concat = concatChild(layer);
+        auto concatFather = layer;
+        if (!concat) {
+            splits = splitChild(layer);
+        }
+
+        while (!concat && !splits.empty()) {
+            auto firstSplit = splits.front();
+            concat = concatChild(firstSplit);
+            // now concat prev layer whould be t
+            concatFather = firstSplit;
+            if (concat) {
+                break;
+            }
+            // inserting into front of queue alow DFS simulation while searching
+            splits.pop_front();
+            auto nexSplits = splitChild(firstSplit);
+            splits.insert(splits.begin(), nexSplits.begin(), nexSplits.end());
+        }
+
+        if (concat) {
+            auto& name = concatFather->name;
+            // we look for this concat layer pointer in extra concat map
+            auto concatLayerInfo = concat_connection.find(concat->name);
+
+            if (concatLayerInfo == concat_connection.end()) {
+                THROW_GNA_EXCEPTION << "Cannot find corresponding concat layer: " << concat->name;
+            }
+            auto &concatLayerInfoItem = concatLayerInfo->second;
+
+            // find this input in vector sum all outputs in primitive
+            auto it = std::find_if(concatLayerInfoItem.concatInputLayers.begin(),
+                                    concatLayerInfoItem.concatInputLayers.end(),
+                                    [&name](GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) {
+                                        return item.name == name;
+                                    });
+            if (it != concatLayerInfoItem.concatInputLayers.end()) {
+                // reserve full size for concat
+                if (!concatLayerInfoItem.output_allocation_flag) {
+                    // check if this concat is being included by other one
+                    // by going thru each concat and checking inputs
+                    auto included =
+                            std::find_if(concat_connection.begin(),
+                                         concat_connection.end(),
+                                         [&concatLayerInfo]
+                                                 (const std::pair<std::string, GNAPlugin::GNAConcatLayer> &concatItem) -> bool {
+                                             auto it = std::find_if(concatItem.second.concatInputLayers.begin(),
+                                                                    concatItem.second.concatInputLayers.end(),
+                                                                    [&concatLayerInfo]
+                                                                            (const GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) -> bool {
+                                                                        return item.name == concatLayerInfo->first;
+                                                                    });
+                                             return it != concatItem.second.concatInputLayers.end();
+                                         });
+                    if (included == concat_connection.end()) {
+                        gnamem->reserve_ptr(&concatLayerInfoItem.gna_ptr, ALIGN64(concatLayerInfoItem.reserved_size));
+
+                        for (auto &&inputLayer : concatLayerInfoItem.concatInputLayers) {
+                            if (InferenceEngine::details::CaselessEq<std::string>()
+                                    (inputLayer.name, "input")) {
+                                bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
+                            }
+                        }
+                    }
+                    concatLayerInfo->second.output_allocation_flag = true;
+                }
+                gnamem->bind_ptr(ptr, &concatLayerInfoItem.gna_ptr, it->offset);
+            }
+            return;
         }
     }
 
