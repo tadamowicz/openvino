@@ -119,6 +119,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         Memory,
         Power,
         Crop,
+        LSTMCell,
+        TensorIterator,
         NO_TYPE
     };
 
