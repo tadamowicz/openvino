@@ -690,7 +690,7 @@ void PassManager::run() {
         pass->attach(layers);
         gnalog() << "PASS: " << ++index << "/" << passes.size() << ":" << pass->getName() << "\n";
 #ifdef PLOT
-        std::string name = "gna_passes" + std::to_string(index) + ".dot";
+        std::string name = "gna_plugin_" + pass->getName() + std::to_string(index) + ".dot";
         std::ofstream out(name);
         saveGraphToDot(*network.get(), out, [](const CNNLayerPtr layer,
                                          ordered_properties &printed_properties,
@@ -701,36 +701,25 @@ void PassManager::run() {
 }
 
 void UnrollLSTMCellPass::run() {
-    for (auto& layer : *pLayers) {
-        if (layer->type != "LSTMCell")
-            continue;
-
-        // TODO: iefode: refactor this code
-
-        InferenceEngine::NetPass::UnrollRNN_if(*getPassManager()->getNetwork(), [] (const RNNCellBase& rnn) -> bool {
-            if (rnn.clip != 0.0f)
-                return true;
-            if (rnn.type == "GRUCell" ||
-                rnn.type == "GRUSequence" ||
-                rnn.type == "RNNCell" ||
-                rnn.type == "RNNSequence")
-                return true;
-            if (!(rnn.type == "LSTMCell" || rnn.type == "LSTMSequence") ||
-                rnn.activations == std::vector<std::string>{"relu"})
-                return false;
+    // TODO: iefode: refactor this code
+    InferenceEngine::NetPass::UnrollRNN_if(*getPassManager()->getNetwork(), [] (const RNNCellBase& rnn) -> bool {
+        if (rnn.clip != 0.0f)
             return true;
-        });
-    }
+        if (rnn.type == "GRUCell" ||
+            rnn.type == "GRUSequence" ||
+            rnn.type == "RNNCell" ||
+            rnn.type == "RNNSequence")
+            return true;
+        if (!(rnn.type == "LSTMCell" || rnn.type == "LSTMSequence") ||
+            rnn.activations == std::vector<std::string>{"relu"})
+            return false;
+        return true;
+    });
 }
 
 void UnrollTIPass::run() {
-    for (auto& layer : *pLayers) {
-        if (layer->type != "TensorIterator")
-            continue;
-
-        auto sts = InferenceEngine::NetPass::UnrollTI(*getPassManager()->getNetwork());
-        if (!sts) {
-            THROW_GNA_EXCEPTION << "Layer: " << layer->name << " was not unrolled!";
-        }
+    auto sts = InferenceEngine::NetPass::UnrollTI(*getPassManager()->getNetwork());
+    if (!sts) {
+        THROW_GNA_EXCEPTION << "TensorIterator layer cannot be unrolled!";
     }
 }
