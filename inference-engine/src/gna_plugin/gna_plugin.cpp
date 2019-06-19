@@ -2119,14 +2119,6 @@ void GNAPlugin::Wait(uint32_t idx) {
         }
 #endif
     }
-#ifdef PLOT
-    dnn.BeginNewWrite();
-    if (dnn.num_components() != 0) {
-        dnn.WriteDnnText("Net_.txt", kDnnFloat);
-        dnn.WriteInputAndOutputText();
-    }
-    dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets.front())->obj);
-#endif
 }
 
 void GNAPlugin::Reset() {
