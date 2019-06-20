@@ -164,7 +164,8 @@ void GNAPlugin::copyInputData(T *dst,
                 void *ptr_dst_vec = reinterpret_cast<uint8_t *>(dst) + i * num_vector_stride * sizeof(T);
                 const void *ptr_src_vec = reinterpret_cast<const uint8_t *>(src) + i * num_vector_elements * sizeof(U);
                 std::memset(ptr_dst_vec, 0, num_vector_stride * sizeof(T));
-                std::memcpy(ptr_dst_vec, ptr_src_vec, num_vector_elements * sizeof(T));
+                ie_memcpy(ptr_dst_vec, num_vector_elements * sizeof(T),
+                    ptr_src_vec, num_vector_elements * sizeof(T));
             }
         }
 
@@ -267,14 +268,16 @@ void GNAPlugin::ExportScores(void *ptr_dst,
                 auto ptr_dst_vec = reinterpret_cast<uint8_t *>(ptr_dst) + i * num_vector_elements * sizeof(int16_t);
                 auto ptr_src_vec = reinterpret_cast<const uint8_t *>(ptr_src) + i * num_vector_stride * sizeof(int16_t);
                 memset(ptr_dst_vec, 0, num_vector_elements * sizeof(int16_t));
-                memcpy(ptr_dst_vec, ptr_src_vec, num_active_elements * sizeof(int16_t));
+                ie_memcpy(ptr_dst_vec, num_active_elements * sizeof(int16_t),
+                    ptr_src_vec, num_active_elements * sizeof(int16_t));
             }
         } else if (num_bytes_per_element == 4) {  // should work for both int and float
             for (uint32_t i = 0; i < num_frames; i++) {
                 void *ptr_dst_vec = reinterpret_cast<uint8_t *>(ptr_dst) + i * num_vector_elements * sizeof(float);
                 const void *ptr_src_vec = reinterpret_cast<const uint8_t *>(ptr_src) + i * num_vector_stride * sizeof(float);
                 memset(ptr_dst_vec, 0, num_vector_elements * sizeof(float));
-                memcpy(ptr_dst_vec, ptr_src_vec, num_active_elements * sizeof(float));
+                ie_memcpy(ptr_dst_vec, num_active_elements * sizeof(float),
+                    ptr_src_vec, num_active_elements * sizeof(float));
             }
         } else {
             THROW_GNA_EXCEPTION << "Unsupported target precision for infer : " << num_bytes_per_element << "bytes";
@@ -457,7 +460,7 @@ void  GNAPlugin::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
     // TODO: segment type for bind, bind initializer not used - need refactor to separate bind and allocation requests
     // dont see practical use case when bind storage type need to be different that allocation type
     gnamem->readonly().bind_initializer(ptr_for_const_blob, [constBlob](void * data, size_t size) {
-        memcpy(data, constBlob->buffer(), constBlob->byteSize());
+        ie_memcpy(data, size, constBlob->buffer(), constBlob->byteSize());
     });
 }
 
@@ -568,12 +571,13 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
         auto paddedWeightsSize = paddedWeights * convolution.precision.size();
         auto elements_in_row = convolution._kernel_x * num_feature_map_columns;
         gnamem->readonly().push_initializer(ptr_weights, paddedWeightsSize, [=](void * data, size_t size) {
-            for (int i = 0; i < convolution._out_depth; i++) {
-                memcpy(data,
+            size_t offset = 0;
+            for (int i = 0; i < convolution._out_depth && size >= offset; i++) {
+                ie_memcpy(reinterpret_cast<uint8_t *>(data) + offset, size - offset,
                        transposedWeights.data() + elements_in_row * i * convolution.precision.size(),
                        elements_in_row * convolution.precision.size());
 
-                data = reinterpret_cast<uint8_t *>(data) + elementsIn * convolution.precision.size();
+                offset += elementsIn * convolution.precision.size();
             }
         }, 64);
     }
@@ -1113,7 +1117,13 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                         for (int i = 0; i < transposedRows; i++) {
                             auto offsetWrite = (transposedRows * j + i) * weightable.precision.size();
                             auto offsetRead = (i * transposedCols + j) * weightable.precision.size();
-                            std::memcpy(u8Data + offsetWrite, cbuffer + offsetRead, weightable.precision.size());
+                            if (size < rowOffset + offsetWrite) {
+                                // zero out dest if error detected
+                                memset(data, 0, size);
+                                THROW_GNA_EXCEPTION << "Size error";
+                            }
+                            ie_memcpy(u8Data + offsetWrite, size - rowOffset - offsetWrite,
+                                cbuffer + offsetRead, weightable.precision.size());
                         }
                     }
                 }
@@ -1129,7 +1139,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
 
         gnamem->readonly().push_initializer(ptr_weights, paddedWeightsSize, [=](void * data, size_t size) {
             for (int i = 0; i < (isDiag ? 1 : num_rows_out); i++) {
-                memcpy(data,
+                ie_memcpy(data, size,
                        weightable._weights->cbuffer().as<const uint8_t *>() + num_rows_in * i * weightable.precision.size(),
                        num_rows_in * weightable.precision.size());
                 data = reinterpret_cast<uint8_t *>(data) + (num_rows_in + num_padding) * weightable.precision.size();
@@ -1251,11 +1261,12 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
         auto paddedWeightsSize = paddedWeights * filterLayer->precision.size();
 
         gnamem->readonly().push_initializer(ptr_weights, paddedWeightsSize, [=](void * data, size_t size) {
-            for (int i = 0; i < num_rows_out; i++) {
-                std::memcpy(data,
+            size_t offset = 0;
+            for (int i = 0; i < num_rows_out && size >= offset; i++) {
+                ie_memcpy(reinterpret_cast<uint8_t *>(data) + offset, size - offset,
                        filterLayer->_weights->cbuffer().as<const uint8_t *>() + num_rows_in * i * filterLayer->precision.size(),
                        num_rows_in * filterLayer->precision.size());
-                data = reinterpret_cast<uint8_t *>(data) + (num_rows_in + num_padding) * filterLayer->precision.size();
+                offset += (num_rows_in + num_padding) * filterLayer->precision.size();
             }
         }, 64);
     }
@@ -1911,7 +1922,8 @@ void RotateFeatures(uint8_t *ptr_feat,
                               element_size);
                 }
             }
-            memcpy(ptr_in, &temp.front(), num_feature_vector_elements * element_size);
+            ie_memcpy(ptr_in, num_feature_vector_elements * element_size,
+                &temp.front(), num_feature_vector_elements * element_size);
         }
     } else {
         THROW_GNA_EXCEPTION << "Rotate dimensions (" << num_rotate_rows << "," << num_rotate_columns
