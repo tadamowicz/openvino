@@ -46,7 +46,8 @@ set(TEST_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/floatmath.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/dnn_memory.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/util.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/gna_model_serial.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/gna_model_serial.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/gna_plugin_query_api.cpp")
 
 add_library(${TARGET_NAME}_test_static STATIC ${TEST_SOURCES} ${HEADERS})
 target_compile_definitions(${TARGET_NAME}_test_static

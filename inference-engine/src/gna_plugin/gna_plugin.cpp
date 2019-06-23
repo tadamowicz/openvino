@@ -1479,16 +1479,6 @@ GNAPlugin::GNAPlugin(const std::map<std::string, std::string>& configMap) {
     SetConfig(configMap);
 }
 
-InferenceEngine::Parameter GNAPlugin::GetConfig(const std::string& name,
-                                                const std::map<std::string, InferenceEngine::Parameter> & options) const {
-    THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
-}
-
-InferenceEngine::Parameter GNAPlugin::GetMetric(const std::string& name,
-                                                const std::map<std::string, InferenceEngine::Parameter> & options) const {
-    THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
-}
-
 GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string &str) const {
     static const caseless_map<std::string, GNAPlugin::LayerType> LayerNameToType = {
         { "Input" , Input },
@@ -2303,18 +2293,7 @@ void GNAPlugin::GetPerformanceCounts(std::map<std::string, InferenceEngine::Infe
 void GNAPlugin::AddExtension(InferenceEngine::IExtensionPtr extension) {}
 
 void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
-    std::vector<std::string> supportedConfigOptions = {
-        GNA_CONFIG_KEY(SCALE_FACTOR),
-        GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE),
-        GNA_CONFIG_KEY(DEVICE_MODE),
-        GNA_CONFIG_KEY(COMPACT_MODE),
-        CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS),
-        GNA_CONFIG_KEY(PRECISION),
-        GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN),
-        CONFIG_KEY(PERF_COUNT),
-        GNA_CONFIG_KEY(LIB_N_THREADS),
-        CONFIG_KEY(SINGLE_THREAD)
-    };
+    auto supportedConfigOptions = supportedConfigKeys();
 
     for (auto& item : config) {
         auto keys = std::find_if(supportedConfigOptions.begin(), supportedConfigOptions.end(), [&item](std::string supportedConfigOption) {
@@ -2374,6 +2353,10 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         if_set(GNA_CONFIG_KEY(SCALE_FACTOR), [&] {
             inputScaleFactors.push_back(std::stod(value));
         });
+    }
+
+    if (inputScaleFactors.empty()) {
+        inputScaleFactors.push_back(1.f);
     }
 
     if_set(GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE), [&] {

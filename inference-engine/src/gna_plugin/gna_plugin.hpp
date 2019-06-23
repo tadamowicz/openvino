@@ -140,6 +140,10 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void Infer(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result) override;
     void GetPerformanceCounts(std::map<std::string, InferenceEngine::InferenceEngineProfileInfo> &perfMap) override;
     void AddExtension(InferenceEngine::IExtensionPtr extension) override;
+
+    std::vector<std::string> supportedConfigKeys()const;
+    std::map<std::string, std::string>  supportedConfigKeysWithDefaults()const;
+
     void SetConfig(const std::map<std::string, std::string> &config) override;
     void LoadNetwork(InferenceEngine::IExecutableNetwork::Ptr &executableNetwork,
                      InferenceEngine::ICNNNetwork &network,
@@ -201,6 +205,12 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
       * test-wise API
       */
      void SetPolicy(Policy p) {policy = p;}
+
+     /**
+      * QueryMetrics API
+      */
+
+     InferenceEngine::Parameter GetAvailableDevices() const;
 
  protected:
     Policy policy;
