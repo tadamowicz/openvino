@@ -445,7 +445,7 @@ void InsertIdentityLayerPass::run() {
             auto newDims = inputData->dims;
             std::reverse(begin(newDims), end(newDims));
 
-            auto dataPtr = std::make_shared<Data>("identity_" + std::to_string(numOfIdentityLayers),
+            auto dataPtr = std::make_shared<Data>("identity_data_" + std::to_string(numOfIdentityLayers),
                                                   TensorDesc(inputData->precision,
                                                              newDims,
                                                              inputData->layout));
@@ -683,23 +683,6 @@ void SubstituteScaleShiftBroadCastPass::run() {
     }
 }
 
-void PassManager::run() {
-    int index = 0;
-    for (auto && pass : passes) {
-        auto layers = CNNNetSortTopologically(*network.get());
-        pass->attach(layers);
-        gnalog() << "PASS: " << ++index << "/" << passes.size() << ":" << pass->getName() << "\n";
-#ifdef PLOT
-        std::string name = "gna_plugin_" + pass->getName() + std::to_string(index) + ".dot";
-        std::ofstream out(name);
-        saveGraphToDot(*network.get(), out, [](const CNNLayerPtr layer,
-                                         ordered_properties &printed_properties,
-                                         ordered_properties &node_properties) {});
-#endif
-        pass->run();
-    }
-}
-
 void UnrollLSTMCellPass::run() {
     // TODO: iefode: refactor this code
     InferenceEngine::NetPass::UnrollRNN_if(*getPassManager()->getNetwork(), [] (const RNNCellBase& rnn) -> bool {
@@ -721,5 +704,28 @@ void UnrollTIPass::run() {
     auto sts = InferenceEngine::NetPass::UnrollTI(*getPassManager()->getNetwork());
     if (!sts) {
         THROW_GNA_EXCEPTION << "TensorIterator layer cannot be unrolled!";
+    }
+}
+
+void PassManager::run() {
+    int index = 0;
+#ifdef PLOT
+    auto dumpNetworkAfterPass = [&index, this] (std::shared_ptr<Pass> pass) {
+        std::string name = "gna_passes_" + std::to_string(index) + "_" + pass->getName() + ".dot";
+        std::ofstream out(name);
+        saveGraphToDot(*network.get(), out, [](const CNNLayerPtr layer,
+                                               ordered_properties &printed_properties,
+                                               ordered_properties &node_properties) {});
+    };
+#else
+    auto dumpNetworkAfterPass = [] (std::shared_ptr<Pass> ) {};
+#endif
+
+    for (auto && pass : passes) {
+        auto layers = CNNNetSortTopologically(*network.get());
+        pass->attach(layers);
+        gnalog() << "PASS: " << ++index << "/" << passes.size() << ":" << pass->getName() << "\n";
+        pass->run();
+        dumpNetworkAfterPass(pass);
     }
 }
