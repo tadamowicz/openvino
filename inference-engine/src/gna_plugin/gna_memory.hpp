@@ -117,6 +117,8 @@ class GNAMemory : public GNAMemRequestsQueue {
                     iterate_binded(re, [](MemRequest & reference, MemRequest & binded) {
                         *reinterpret_cast<void **>(binded._ptr_out) =
                             binded._offset + reinterpret_cast<uint8_t *>(*reinterpret_cast<void **>(reference._ptr_out));
+                        binded._num_elements = reference._num_elements;
+                        binded._element_size = reference._element_size;
                     });
 
                     // std::cout << "size=" << ALIGN(sz, re._alignment) << "\n" << std::flush;
@@ -184,10 +186,12 @@ class GNAMemory : public GNAMemRequestsQueue {
     template<class T>
     void iterate_binded(MemRequest & reference, const T & visitor) {
         for (auto &re : _future_heap) {
-            if (re._type == REQUEST_BIND && re._ptr_in == reference._ptr_out) {
-                // std::cout << "  [binded=" << re._ptr_out <<"]\n";
+            if ((re._type & REQUEST_BIND) && (re._ptr_in == reference._ptr_out)) {
+                // std::cout << "  [binded=" << re._type << ", ptr=" << re._ptr_out <<"]\n";
                 visitor(reference, re);
-                // TODO: no circular dependency checking, only tree-style dependency supported
+                // primitive loop check
+                if (re._ptr_in == re._ptr_out) continue;
+                // TODO: no circular dependency checking, only tree-style dependency with loops supported
                 iterate_binded(re, visitor);
             }
         }
