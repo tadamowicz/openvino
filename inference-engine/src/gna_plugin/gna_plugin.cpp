@@ -689,7 +689,7 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto &currentComponent = dnnComponentsForLayer.back().second;
 
 #ifdef PLOT
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << dnnComponentsForLayer.size() - 1 << std::endl;
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " pooling_" <<  dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
     switch (pooling._type) {
         case PoolingLayer::MAX: break;
@@ -742,6 +742,11 @@ void GNAPlugin::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
+
+#ifdef PLOT
+    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " kDnnCopyOp_" << dnnComponentsForLayer.size() - 1 << std::endl;
+#endif
+
     dnn.InitCopyComponent(currentComponent,
                           orientation,
                           ALIGN(num_rows_in, 8),
@@ -855,9 +860,16 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         auto outputs = *layer->outData.begin();
         auto inputs = layer->insData.begin()->lock();
 
-        uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
-        uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
-        uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
+        // only 1D crops supported
+        if (cropLayer->axis.size() != 1) {
+            THROW_GNA_EXCEPTION << "only 1D crop layer supported: " << cropLayer->name;
+        }
+
+        // TODO: add unit tests for 4d crops blobs
+        uint32_t num_rows_in = FROM_IR_DIM(inputs, inputs->getDims().size() - cropLayer->axis[0]);
+        uint32_t num_columns_in = 1;
+
+        uint32_t num_rows_out = FROM_IR_DIM(outputs, outputs->getDims().size() - cropLayer->axis[0]);
         uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
         void *ptr_inputs;
@@ -867,6 +879,11 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
         dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
         auto &currentComponent = dnnComponentsForLayer.back().second;
+
+#ifdef PLOT
+        std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " Affine_" << dnnComponentsForLayer.size() - 1 << std::endl;
+#endif
+
         dnn.InitAffineComponent(currentComponent,
                                 num_rows_in + num_padding,
                                 num_columns_in,
@@ -1166,8 +1183,8 @@ void GNAPlugin::FillWeightOfAligningFilter(InferenceEngine::CNNLayerPtr layer, v
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
 
-    uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
-    uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
+    uint32_t num_rows_in = InferenceEngine::details::product(begin(inputs->dims), end(inputs->dims)) / FROM_IR_DIM(inputs, 1);
+    uint32_t num_rows_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims)) / FROM_IR_DIM(outputs, 1);
 
     if (!ptrWeights) {
         THROW_GNA_EXCEPTION << "Weights memory is not allocated!!!";
@@ -1884,7 +1901,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     DumpXNNToFile();
 
 #ifdef PLOT
-    dnn.WriteGraphWizModel("graph.dot");
+    dnn.WriteGraphWizModel("gna-blob.dot");
 #endif
 }
 void GNAPlugin::DumpXNNToFile() const {
@@ -2254,8 +2271,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     DumpXNNToFile();
 
 #ifdef PLOT
-    dnn.WriteGraphWizModel("graph.dot");
-    // ExportGnaNetworkAndrzej("layers/loaded_from_aot_file", &nnet->obj);
+    dnn.WriteGraphWizModel("gna-blob.dot");
 #endif
 
     return nullptr;

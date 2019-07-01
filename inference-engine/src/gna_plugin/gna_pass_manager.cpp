@@ -474,42 +474,69 @@ void InsertIdentityLayerPass::run() {
 void InsertCopyLayerPass::run() {
     int numCopyLayers = 0;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+
+    // give previous layers while skipping certain layer according to expression
+    std::function<std::vector<CNNLayerPtr>(CNNLayerPtr, const std::function<bool(CNNLayerPtr origin)>&)> prevLayersSkip =
+        [&prevLayersSkip](CNNLayerPtr origin, const std::function<bool(CNNLayerPtr origin)> &acceptanceCriteria) {
+        std::vector<CNNLayerPtr> prevLayers;
+        for (int i = 0; CNNNetHasPrevLayer(origin.get(), i); i++) {
+            auto prevLayer = CNNNetPrevLayer(origin, i);
+            if (acceptanceCriteria(prevLayer)) {
+                prevLayers.push_back(prevLayer);
+            } else {
+                // if for some input we need to look in upper layers
+                auto prevPrevLayers = prevLayersSkip(prevLayer, acceptanceCriteria);
+                prevLayers.insert(prevLayers.end(), prevPrevLayers.begin(), prevPrevLayers.end());
+            }
+        }
+
+        return prevLayers;
+    };
+
     for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
-        auto prevLayer = CNNNetPrevLayer(l);
-        if ((LayerInfo(l).isMemory() && LayerInfo(prevLayer).isConcat()) ||
-            (LayerInfo(l).isConcat() && LayerInfo(prevLayer).isCrop())) {
-            if (LayerInfo(prevLayer).isCrop()) {
-                auto cropLayer =  LayerInfo(prevLayer).as<CropLayer*>();
-                size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
-                if (ALIGN(cropOffset, 8) != cropOffset) {
-                    // The crop will be replaced by affine.
-                    // Copy layer insertion is not required
-                    continue;
+        auto prevLayers = prevLayersSkip(l, [](CNNLayerPtr origin){
+            return !LayerInfo(origin).isReshape();
+        });
+
+        for (int i=0; i != prevLayers.size(); i++) {
+            auto & prevIndirectLayer = prevLayers[i];
+            if ((LayerInfo(l).isMemory() && LayerInfo(prevIndirectLayer).isConcat()) ||
+                (LayerInfo(l).isConcat() && LayerInfo(prevIndirectLayer).isCrop())) {
+                if (LayerInfo(prevIndirectLayer).isCrop()) {
+                    auto cropLayer = LayerInfo(prevIndirectLayer).as<CropLayer *>();
+                    size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
+                    if (ALIGN(cropOffset, 8) != cropOffset) {
+                        // The crop will be replaced by affine.
+                        // Copy layer insertion is not required
+                        continue;
+                    }
                 }
+                auto prevLayer = CNNNetPrevLayer(l, i);
+                std::string copyName = std::string("copy_") + std::to_string(numCopyLayers++);
+                gnalog() << "Inserted " << copyName << " between: " << l->name << " and " << prevLayer->name
+                         << std::endl;
+
+                CNNLayerPtr copyLayer =
+                    std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
+
+                auto inputData = l->insData[i].lock();
+                auto newDims = inputData->dims;
+
+                std::reverse(begin(newDims), end(newDims));
+
+                auto dataPtr = std::make_shared<Data>(copyName,
+                                                      TensorDesc(inputData->precision,
+                                                                 newDims,
+                                                                 inputData->layout));
+
+                auto copyWithQuant = quantized ?
+                                     InferenceEngine::injectData<QuantizedLayerParams>(copyLayer) :
+                                     copyLayer;
+                dataPtr->creatorLayer = copyWithQuant;
+                copyWithQuant->outData.push_back(dataPtr);
+                CNNNetworkInsertLayer(prevLayer, l, copyWithQuant);
             }
-            std::string copyName = std::string("copy_") + std::to_string(numCopyLayers++);
-            gnalog() << "Inserted "<< copyName << " between: " << l->name << " and " << prevLayer->name << std::endl;
-
-            CNNLayerPtr copyLayer =
-            std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
-
-            auto inputData = l->insData[0].lock();
-            auto newDims = inputData->dims;
-
-            std::reverse(begin(newDims), end(newDims));
-
-            auto dataPtr = std::make_shared<Data>(copyName,
-                                                  TensorDesc(inputData->precision,
-                                                             newDims,
-                                                             inputData->layout));
-
-            auto copyWithQuant = quantized ?
-                                    InferenceEngine::injectData<QuantizedLayerParams>(copyLayer) :
-                                                                                            copyLayer;
-            dataPtr->creatorLayer = copyWithQuant;
-            copyWithQuant->outData.push_back(dataPtr);
-            CNNNetworkInsertLayer(prevLayer, l, copyWithQuant);
         }
     }
 }
