@@ -1211,7 +1211,7 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
         return ptra >= ptrb  && ptra < reinterpret_cast<char*>(ptrb) + bsize;
     };
 
-    std::fstream graph("graph.dot", std::ios::out);
+    std::fstream graph(filename, std::ios::out);
     graph << "strict digraph {";
     std::set<void*> weights;
     std::set<void*> biases;
@@ -1239,6 +1239,7 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
             graph << "  <TR><TD> wscale</TD><TD>" <<  components[k].op.affine.weight_scale_factor<< "</TD></TR>\n";
             graph << "  <TR><TD> wbit</TD><TD>" <<  components[k].op.affine.num_bytes_per_weight<< "</TD></TR>\n";
             graph << "  <TR><TD> bbit</TD><TD>" <<  components[k].op.affine.num_bytes_per_bias<< "</TD></TR>\n";
+
             graph << "  <TR><TD> wadr</TD><TD>" <<  components[k].op.affine.ptr_weights<< "</TD></TR>\n";
             graph << "  <TR><TD> badr</TD><TD>" <<  components[k].op.affine.ptr_biases<< "</TD></TR>\n";
         }
@@ -1256,7 +1257,11 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
             graph << "  <TR><TD> wscale</TD><TD>" <<  conv.weight_scale_factor<< "</TD></TR>\n";
             graph << "  <TR><TD> wbit</TD><TD>" <<  conv.num_bytes_per_weight<< "</TD></TR>\n";
             graph << "  <TR><TD> bbit</TD><TD>" <<  conv.num_bytes_per_bias<< "</TD></TR>\n";
+            graph << "  <TR><TD> wadr</TD><TD>" <<  components[k].op.conv1D.ptr_filters<< "</TD></TR>\n";
+            graph << "  <TR><TD> badr</TD><TD>" <<  components[k].op.conv1D.ptr_biases<< "</TD></TR>\n";
         }
+        graph << "  <TR><TD> iadr</TD><TD>" <<  components[k].ptr_inputs << "</TD></TR>\n";
+        graph << "  <TR><TD> oadr</TD><TD>" <<  components[k].ptr_outputs<< "</TD></TR>\n";
         graph<<   "  <TR><TD> num_rows_in</TD><TD>" <<  components[k].num_rows_in<< "</TD></TR>\n"
                   "  <TR><TD> num_columns_in</TD><TD>" <<  components[k].num_columns_in<< "</TD></TR>\n"
                   "  <TR><TD> num_rows_out</TD><TD>" <<  components[k].num_rows_out<< "</TD></TR>\n"
