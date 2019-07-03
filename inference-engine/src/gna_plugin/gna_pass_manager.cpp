@@ -603,9 +603,10 @@ void InsertConcatAligningFilterPass::run() {
 
                 std::vector<float> filterWeights(num_rows_out * num_rows_in, 0.f);
 
-                for (int i = 0; i != outputSize; i++) {
-                    filterWeights[num_rows_padded] = 1.0f;
-                    num_rows_padded += outputSize + 1;
+                auto identityIdx = num_rows_padded * num_rows_in;
+                for (int i = 0; i != num_rows_in; i++) {
+                    filterWeights[identityIdx] = 1.0f;
+                    identityIdx += num_rows_in + 1;
                 }
 
                 concatAligningFilter->_weights = make_shared_blob<float>(concatInput->precision, Layout::C, filterWeights);
