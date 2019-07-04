@@ -28,6 +28,7 @@ extern bool global_debug;
 #include "pwl.h"
 #include "util.h"
 #include "gna_plugin_log.hpp"
+#include "ie_memcpy.h"
 
 #ifdef WIN32
 # define rand_r(X) rand()
@@ -899,7 +900,8 @@ uint32_t AmIntelDnn::CopyActiveList(std::vector<std::vector<uint32_t> > &active_
 
         if (ptr_active_outputs_ != nullptr) {
             num_active_outputs_ = active_list[list_index].size();
-            memcpy(ptr_active_outputs_, active_list[list_index].data(), num_active_outputs_ * sizeof(uint32_t));
+            ie_memcpy(ptr_active_outputs_, num_active_outputs_ * sizeof(uint32_t),
+                active_list[list_index].data(), num_active_outputs_ * sizeof(uint32_t));
         }
     }
 
