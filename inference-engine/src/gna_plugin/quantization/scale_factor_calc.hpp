@@ -273,6 +273,7 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
         if (!sourceQuantParams) {
             THROW_GNA_EXCEPTION << "Concat quantization for this case need to be implemented!!! \n";
         }
+
         auto destinationQuantParams =
                 InferenceEngine::getInjectedData<QuantizedLayerParams>(InferenceEngine::CNNNetPrevLayer(concatLayer, !i));
         InferenceEngine::CNNLayerPtr in = InferenceEngine::CNNNetPrevLayer(concatLayer, !i);
