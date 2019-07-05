@@ -645,17 +645,19 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
 
-    if (power.scale != 1.0f) {
-        if (quantized == nullptr) {
-            gnamem->readonly().push_value(ptr_weights, power.scale, num_rows_out, 64);
-        } else {
-            auto scaledIdentity = quantized->_weights_quant.scale * power.scale;
+    if (sw_fp32) {
+        gnamem->readonly().push_value(ptr_weights, power.scale, num_rows_out, 64);
+        gnamem->readonly().push_value(ptr_biases, power.scale, num_rows_out, 64);
+    } else {
+        auto weightsScaledIdentity = quantized->_weights_quant.scale * power.scale;
+        auto biasesScaledIdentity = quantized->_bias_quant.scale * power.scale;
 
-            #define FLOAT_TO_INT16(a) static_cast<int16_t>(((a) < 0)?((a) - 0.5):((a) + 0.5))
+        #define FLOAT_TO_INT16(a) static_cast<int16_t>(((a) < 0)?((a) - 0.5):((a) + 0.5))
 
-            auto quantizedIdentity = FLOAT_TO_INT16(std::min(scaledIdentity, static_cast<float>(INT16_MAX)));
-            gnamem->readonly().push_value<int16_t>(ptr_weights, quantizedIdentity, num_rows_out, 64);
-        }
+        auto weightQuantizedIdentity = FLOAT_TO_INT16(std::min(weightsScaledIdentity, static_cast<float>(INT16_MAX)));
+        auto biasesQuantizedIdentity = FLOAT_TO_INT16(std::min(biasesScaledIdentity, static_cast<float>(INT16_MAX)));
+        gnamem->readonly().push_value<int16_t>(ptr_weights, weightQuantizedIdentity, num_rows_out, 64);
+        gnamem->readonly().push_value<int32_t>(ptr_biases, biasesQuantizedIdentity, num_rows_out, 64);
     }
 
     if (power.offset != 0.0f) {

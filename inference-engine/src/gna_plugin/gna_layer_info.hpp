@@ -55,7 +55,7 @@ class LayerInfo {
     bool has32BOutput() const noexcept {
         IS_VALID();
         static  InferenceEngine::details::caseless_set<std::string> layersWith32BOutputs =
-                {"FullyConnected", "InnerProduct", "AffineFilter", "ConcatAlignFilter", "Eltwise", "ScaleShift", "Convolution", "Pooling"};
+                {"FullyConnected", "InnerProduct", "AffineFilter", "ConcatAlignFilter", "Eltwise", "ScaleShift", "Convolution", "Pooling", "Power"};
         return (layersWith32BOutputs.find(layer->type) != layersWith32BOutputs.end()) ||
                                                             (isCrop() && isCropAffined());
     }
