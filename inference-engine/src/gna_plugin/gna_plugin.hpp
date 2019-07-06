@@ -119,6 +119,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
         Memory,
         Power,
         Crop,
+        LSTMCell,
+        TensorIterator,
         NO_TYPE
     };
 
@@ -138,6 +140,10 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void Infer(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result) override;
     void GetPerformanceCounts(std::map<std::string, InferenceEngine::InferenceEngineProfileInfo> &perfMap) override;
     void AddExtension(InferenceEngine::IExtensionPtr extension) override;
+
+    std::vector<std::string> supportedConfigKeys()const;
+    std::map<std::string, std::string>  supportedConfigKeysWithDefaults()const;
+
     void SetConfig(const std::map<std::string, std::string> &config) override;
     void LoadNetwork(InferenceEngine::IExecutableNetwork::Ptr &executableNetwork,
                      InferenceEngine::ICNNNetwork &network,
@@ -200,6 +206,12 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
       */
      void SetPolicy(Policy p) {policy = p;}
 
+     /**
+      * QueryMetrics API
+      */
+
+     InferenceEngine::Parameter GetAvailableDevices() const;
+
  protected:
     Policy policy;
     uint32_t num_cnn_rows_out = 0;
@@ -227,18 +239,30 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     bool AreLayersSupported(InferenceEngine::ICNNNetwork& network, std::string& errMessage);
     LayerType LayerTypeFromStr(std::string const &str) const;
     /**
-     * maps tpe of connection to input and output layers also stores gna_pointer for alloc request
+     * maps type of connection to input and output layers also stores gna_pointer for alloc request
      */
     class GNAMemoryLayer {
         InferenceEngine::CNNLayerPtr inputLayer;
         InferenceEngine::CNNLayerPtr outputLayer;
+        const int elementSize;
+
      public:
-        GNAMemoryLayer(InferenceEngine::CNNLayerPtr inLayer, InferenceEngine::CNNLayerPtr outLayer) :
-            inputLayer(inLayer), outputLayer(outLayer) {
+        GNAMemoryLayer(InferenceEngine::CNNLayerPtr inLayer, InferenceEngine::CNNLayerPtr outLayer, int elementSize) :
+            inputLayer(inLayer), outputLayer(outLayer), elementSize(elementSize) {
         }
 
-        InferenceEngine::CNNLayerPtr getInput() { return inputLayer; }
-        InferenceEngine::CNNLayerPtr getOutput() { return outputLayer; }
+        InferenceEngine::CNNLayerPtr getInput() const { return inputLayer; }
+        InferenceEngine::CNNLayerPtr getOutput() const { return outputLayer; }
+        InferenceEngine::SizeVector getDims() const {
+            return inputLayer->outData.front()->getDims();
+        }
+
+        /**
+         * @brief possible to store memory in different precision
+         */
+        int elementSizeBytes() const {
+            return elementSize;
+        }
 
         /**
          * pointer to gna memory request
@@ -347,13 +371,15 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     using MemoryConnection = std::list<std::pair<std::string, GNAMemoryLayer>>;
     using ConcatConnection = std::unordered_map<std::string, GNAConcatLayer>;
     using SplitConnection  = std::unordered_map<std::string, GNASplitLayer>;
-    using CropConnection  = std::unordered_map<std::string, GNACropLayer>;
+    using CropConnection   = std::unordered_map<std::string, GNACropLayer>;
+    using ConstConnections  = std::unordered_map<std::string, void*>;
     // layers with extra storage for connections and additional
     // non trivial processing
     MemoryConnection memory_connection;
     ConcatConnection concat_connection;
     SplitConnection  split_connection;
     CropConnection   crop_connection;
+    ConstConnections const_connections;
     void fillMemoryConnections(std::unordered_map<std::string,
                                  std::vector<InferenceEngine::CNNLayerPtr>> &memoryPairs);
 

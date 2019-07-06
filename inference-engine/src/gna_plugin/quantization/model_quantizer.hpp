@@ -4,6 +4,8 @@
 
 #pragma once
 #include <vector>
+#include <utility>
+#include <string>
 #include "gna_plugin_config.hpp"
 #include "layer_transform.hpp"
 #include "graph_tools.hpp"
@@ -13,6 +15,7 @@
 #include "weights_converter.hpp"
 
 namespace GNAPluginNS {
+
 /**
  * Quantize entire cnn - network
  * @tparam T - type trait for weights and biases
