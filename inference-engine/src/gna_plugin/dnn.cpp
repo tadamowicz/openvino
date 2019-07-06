@@ -2418,7 +2418,8 @@ void AmIntelDnn::WriteInputAndOutputText() {
                     auto value = reinterpret_cast<int16_t *>(component[i].ptr_outputs)[k * component[i].num_columns_out+ j];
                     floatValue = static_cast<float>(value);
                 }
-                out_file << std::setw(8) << floatValue / component[i].output_scale_factor << "\n";
+                floatValue /= component[i].output_scale_factor;
+                out_file << std::setw(8) << floatValue << "\n";
 
                 if (ref_out_file) {
                     float ref_value = 0.f;

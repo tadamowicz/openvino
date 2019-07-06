@@ -1232,12 +1232,12 @@ void GNAPlugin::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_rows_in = filterLayer->_weights->size() / num_rows_out;
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
-#ifdef  PLOT
-    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
     auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->precision() : outputs->precision;
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
+#ifdef  PLOT
+    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << std::endl;
+#endif
 
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
@@ -1573,6 +1573,7 @@ void GNAPlugin::CreateLayerPrimitive(CNNLayerPtr layer) {
         {{"Eltwise"}, CREATE(EltwisePrimitive)},  // same as diagonal while weights are not taken from network, rather than from another output
         {{"Split"}, SKIP},  // skip information about which part of prev layer need to consume handle during layer creation
         {{"Slice"}, SKIP},
+        {{"link"}, SKIP},
         {{"clamp", "sigmoid", "relu", "tanh", "identity"}, CREATE(PWLPrimitive)},
         {{"Convolution"}, CREATE(ConvolutionPrimitive)},
         {{"Permute"}, CREATE(PermutePrimitive)},  // permute of certain form (2D transpose) can be assimilated in followed FC layer
@@ -1703,6 +1704,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         passes->registerPass<ReorderMaxPoolPass>();
         passes->registerPass<InsertSplitAligningFilterPass>();
         passes->registerPass<InsertConcatAligningFilterPass>();
+        passes->registerPass<ReorderConcatInputsPass>();
 
         if (policy.PermutePolicy != Policy::Permute::DISABLED) {
             passes->registerPass<ReversePermutationsPass>();

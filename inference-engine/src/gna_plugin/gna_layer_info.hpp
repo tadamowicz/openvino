@@ -70,6 +70,14 @@ class LayerInfo {
               "leakyrelu", "tanh", "prelu", "exp", "log", "sign", "abs", "neghalflog"};
         return activations.find(layer->type) != activations.end();
     }
+
+    bool isWeightable() const noexcept {
+        auto weigtable_ptr = as<const InferenceEngine::WeightableLayer*>();
+        return weigtable_ptr != nullptr;
+    }
+    bool isConcatAlignFilter() const noexcept {
+        return isOfType("ConcatAlignFilter");
+    }
     bool isRelu() const noexcept {
         return isOfType("relu");
     }

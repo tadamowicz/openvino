@@ -113,6 +113,11 @@ DECL_PASS(InsertSplitAligningFilter);
  */
 DECL_PASS(InsertConcatAligningFilter);
 
+/**
+ * @brief concat-aligning filter if inserted need to be folowed by left aligning inupt in multiple inputs to concate case
+ * or just followed by first input to concate. This cannot be done in inserting concat aliging phase
+ */
+DECL_PASS(ReorderConcatInputs);
 
 /**
 * @brief unrolled LSTM cell layer in supported GNA primitives

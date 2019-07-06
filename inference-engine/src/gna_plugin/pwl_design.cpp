@@ -475,7 +475,6 @@ void make_gna_pwl(const DnnActivation  fun,
                     << " " << gna_pwl[n_segments].yBase / out_scale
                     << " " << 0
                     << "\n";
-                n_segments += 1;
             }
             break;
         }
