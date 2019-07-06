@@ -80,6 +80,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
         LayerInfo layerInfo(*cnnLayer);
         // TODO: current approach set input scale factor for true input layer(s) equals to provided factor,
         auto quant = getInjectedData<QuantizedLayerParams>(*cnnLayer);
+
         if (InferenceEngine::details::CaselessEq<std::string>()(cnnLayer->type, "Memory")) {
              if (CNNNetHasPrevLayer(cnnLayer)) {
                 auto prevLayer = CNNNetPrevLayer(cnnLayer);

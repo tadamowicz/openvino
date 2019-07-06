@@ -47,7 +47,7 @@ class LayerInfo {
     }
     bool has16BOutput() const noexcept {
         IS_VALID();
-        static InferenceEngine::details::caseless_set<std::string> layersWith16BOutputs = {"memory", "input", "split", "slice", "concat", "copy"};
+        static InferenceEngine::details::caseless_set<std::string> layersWith16BOutputs = {"memory", "input", "split", "slice", "concat", "copy", "const"};
         return layersWith16BOutputs.find(layer->type) != layersWith16BOutputs.end() ||
                                                                         isActivation() ||
                                                             (isCrop() && !isCropAffined());
@@ -65,7 +65,9 @@ class LayerInfo {
     }
     bool isActivation() const noexcept {
         IS_VALID();
-        static InferenceEngine::details::caseless_set<std::string> activations = {"clamp", "sigmoid", "identity", "relu", "leakyrelu", "tanh", "prelu"};
+        static InferenceEngine::details::caseless_set<std::string> activations =
+            { "clamp", "sigmoid", "identity", "relu",
+              "leakyrelu", "tanh", "prelu", "exp", "log", "sign", "abs", "neghalflog"};
         return activations.find(layer->type) != activations.end();
     }
     bool isRelu() const noexcept {

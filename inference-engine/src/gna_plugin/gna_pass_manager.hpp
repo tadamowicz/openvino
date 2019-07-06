@@ -28,6 +28,7 @@ class IPassManager {
     virtual ~IPassManager() = default;
     virtual int & getIntVar(std::string name)  = 0;
     virtual const Policy & getPolicy() const = 0;
+    virtual const InferenceEngine::CNNNetPtr & getNetwork() const = 0;
 };
 
 class BasePass : public Pass {
@@ -107,6 +108,15 @@ DECL_PASS(InsertCopyLayer);
  */
 DECL_PASS(InsertAligningFilterLayer);
 
+/**
+* @brief unrolled LSTM cell layer in supported GNA primitives
+*/
+DECL_PASS(UnrollLSTMCell);
+
+/**
+* @brief unrolled Tensor Iterator layer in supported GNA layers
+*/
+DECL_PASS(UnrollTI);
 
 class PassManager : public IPassManager, public std::enable_shared_from_this<PassManager> {
     Policy policy;
@@ -128,6 +138,10 @@ class PassManager : public IPassManager, public std::enable_shared_from_this<Pas
     const Policy & getPolicy() const override {
         return policy;
     }
+    const InferenceEngine::CNNNetPtr & getNetwork() const override {
+        return network;
+    }
     void run();
 };
+
 }  // namespace GNAPluginNS
