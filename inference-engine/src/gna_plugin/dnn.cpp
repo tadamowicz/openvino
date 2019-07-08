@@ -1961,6 +1961,7 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
     ptr_nnet->pLayers = reinterpret_cast<intel_nnet_layer_t *>(_mm_malloc(ptr_nnet->nLayers * sizeof(intel_nnet_layer_t), 64));
     if (ptr_nnet->pLayers == nullptr)
         THROW_GNA_EXCEPTION << "out of memory in AmIntelDnn::FillGNAStruct()";
+    memset(ptr_nnet->pLayers, 0, ptr_nnet->nLayers * sizeof(intel_nnet_layer_t));
     pLayer = ptr_nnet->pLayers;
 
     for (int i = 0; i < component.size(); i++) {
