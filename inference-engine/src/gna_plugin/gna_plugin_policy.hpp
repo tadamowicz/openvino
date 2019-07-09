@@ -38,7 +38,7 @@ class Policy {
         DISABLED,
         DISABLED_FOR_FP32,
         ENABLED
-    } ConcatAlignmentPolicy = ConcatAlignment::DISABLED_FOR_FP32;
+    } ConcatAlignmentPolicy = ConcatAlignment::ENABLED;
 };
 
 inline std::ostream& operator<<(std::ostream& os, Policy::ScaleShift policy) {
