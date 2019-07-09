@@ -27,6 +27,7 @@ extern bool global_debug;
 #include "pwl.h"
 #include "util.h"
 #include "gna_plugin_log.hpp"
+#include "ie_memcpy.h"
 
 #ifdef WIN32
 # define rand_r(X) rand()
@@ -898,7 +899,8 @@ uint32_t AmIntelDnn::CopyActiveList(std::vector<std::vector<uint32_t> > &active_
 
         if (ptr_active_outputs_ != nullptr) {
             num_active_outputs_ = active_list[list_index].size();
-            memcpy(ptr_active_outputs_, active_list[list_index].data(), num_active_outputs_ * sizeof(uint32_t));
+            ie_memcpy(ptr_active_outputs_, num_active_outputs_ * sizeof(uint32_t),
+                active_list[list_index].data(), num_active_outputs_ * sizeof(uint32_t));
         }
     }
 
@@ -1210,7 +1212,7 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
         return ptra >= ptrb  && ptra < reinterpret_cast<char*>(ptrb) + bsize;
     };
 
-    std::fstream graph("graph.dot", std::ios::out);
+    std::fstream graph(filename, std::ios::out);
     graph << "strict digraph {";
     std::set<void*> weights;
     std::set<void*> biases;
@@ -1238,6 +1240,7 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
             graph << "  <TR><TD> wscale</TD><TD>" <<  components[k].op.affine.weight_scale_factor<< "</TD></TR>\n";
             graph << "  <TR><TD> wbit</TD><TD>" <<  components[k].op.affine.num_bytes_per_weight<< "</TD></TR>\n";
             graph << "  <TR><TD> bbit</TD><TD>" <<  components[k].op.affine.num_bytes_per_bias<< "</TD></TR>\n";
+
             graph << "  <TR><TD> wadr</TD><TD>" <<  components[k].op.affine.ptr_weights<< "</TD></TR>\n";
             graph << "  <TR><TD> badr</TD><TD>" <<  components[k].op.affine.ptr_biases<< "</TD></TR>\n";
         }
@@ -1255,7 +1258,11 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
             graph << "  <TR><TD> wscale</TD><TD>" <<  conv.weight_scale_factor<< "</TD></TR>\n";
             graph << "  <TR><TD> wbit</TD><TD>" <<  conv.num_bytes_per_weight<< "</TD></TR>\n";
             graph << "  <TR><TD> bbit</TD><TD>" <<  conv.num_bytes_per_bias<< "</TD></TR>\n";
+            graph << "  <TR><TD> wadr</TD><TD>" <<  components[k].op.conv1D.ptr_filters<< "</TD></TR>\n";
+            graph << "  <TR><TD> badr</TD><TD>" <<  components[k].op.conv1D.ptr_biases<< "</TD></TR>\n";
         }
+        graph << "  <TR><TD> iadr</TD><TD>" <<  components[k].ptr_inputs << "</TD></TR>\n";
+        graph << "  <TR><TD> oadr</TD><TD>" <<  components[k].ptr_outputs<< "</TD></TR>\n";
         graph<<   "  <TR><TD> num_rows_in</TD><TD>" <<  components[k].num_rows_in<< "</TD></TR>\n"
                   "  <TR><TD> num_columns_in</TD><TD>" <<  components[k].num_columns_in<< "</TD></TR>\n"
                   "  <TR><TD> num_rows_out</TD><TD>" <<  components[k].num_rows_out<< "</TD></TR>\n"
@@ -1954,6 +1961,7 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
     ptr_nnet->pLayers = reinterpret_cast<intel_nnet_layer_t *>(_mm_malloc(ptr_nnet->nLayers * sizeof(intel_nnet_layer_t), 64));
     if (ptr_nnet->pLayers == nullptr)
         THROW_GNA_EXCEPTION << "out of memory in AmIntelDnn::FillGNAStruct()";
+    memset(ptr_nnet->pLayers, 0, ptr_nnet->nLayers * sizeof(intel_nnet_layer_t));
     pLayer = ptr_nnet->pLayers;
 
     for (int i = 0; i < component.size(); i++) {

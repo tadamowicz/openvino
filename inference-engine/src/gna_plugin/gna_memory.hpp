@@ -4,6 +4,7 @@
 
 #pragma once
 #include "gna_mem_requests.hpp"
+#include "ie_memcpy.h"
 #include <memory>
 #include <vector>
 #include <list>
@@ -108,8 +109,10 @@ class GNAMemory : public GNAMemRequestsQueue {
 
                 if (re._ptr_out != nullptr) {
                     auto cptr = heap.get() + offset;
+                    size_t cptr_avail_size = _total - offset;
                     if (re._type & REQUEST_BIND) {
                         cptr = reinterpret_cast<uint8_t*>(*reinterpret_cast<void **>(re._ptr_out));
+                        cptr_avail_size = sz;
                     } else {
                         *reinterpret_cast<void **>(re._ptr_out) = cptr;
                     }
@@ -127,7 +130,7 @@ class GNAMemory : public GNAMemRequestsQueue {
                         case REQUEST_ALLOCATE :break;
                         case REQUEST_STORE : {
                             if (re._ptr_in != nullptr) {
-                                memcpy(cptr, re._ptr_in, sz);
+                                ie_memcpy(cptr, cptr_avail_size, re._ptr_in, sz);
                             } else {
                                 size_t of = 0;
                                 for (int i = 0; i < re._num_elements; i++, of += re._element_size) {

@@ -465,6 +465,14 @@ void InsertIdentityLayerPass::run() {
                     }
                 }
             }
+            // copy offset - to be used while connecting outputs
+            if (prev->params.find("output_offset") != prev->params.end()) {
+                activationLayerWithQuant->params["output_offset"] = prev->params["output_offset"];
+            }
+            // copy offset - to be used while connecting outputs
+            if (prev->params.find("original_num_rows") != prev->params.end()) {
+                activationLayerWithQuant->params["original_num_rows"] = prev->params["original_num_rows"];
+            }
 
             CNNNetworkInsertLayer(prev, notAll ? l : CNNLayerPtr(nullptr), activationLayerWithQuant);
         }
@@ -474,47 +482,156 @@ void InsertIdentityLayerPass::run() {
 void InsertCopyLayerPass::run() {
     int numCopyLayers = 0;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+
+    // give previous layers while skipping certain layer according to expression
+    std::function<std::vector<CNNLayerPtr>(CNNLayerPtr, const std::function<bool(CNNLayerPtr origin)>&)> prevLayersSkip =
+        [&prevLayersSkip](CNNLayerPtr origin, const std::function<bool(CNNLayerPtr origin)> &acceptanceCriteria) {
+        std::vector<CNNLayerPtr> prevLayers;
+        for (int i = 0; CNNNetHasPrevLayer(origin.get(), i); i++) {
+            auto prevLayer = CNNNetPrevLayer(origin, i);
+            if (acceptanceCriteria(prevLayer)) {
+                prevLayers.push_back(prevLayer);
+            } else {
+                // if for some input we need to look in upper layers
+                auto prevPrevLayers = prevLayersSkip(prevLayer, acceptanceCriteria);
+                prevLayers.insert(prevLayers.end(), prevPrevLayers.begin(), prevPrevLayers.end());
+            }
+        }
+
+        return prevLayers;
+    };
+
     for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
-        auto prevLayer = CNNNetPrevLayer(l);
-        if ((LayerInfo(l).isMemory() && LayerInfo(prevLayer).isConcat()) ||
-            (LayerInfo(l).isConcat() && LayerInfo(prevLayer).isCrop())) {
-            if (LayerInfo(prevLayer).isCrop()) {
-                auto cropLayer =  LayerInfo(prevLayer).as<CropLayer*>();
-                size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
-                if (ALIGN(cropOffset, 8) != cropOffset) {
-                    // The crop will be replaced by affine.
-                    // Copy layer insertion is not required
-                    continue;
+        auto prevLayers = prevLayersSkip(l, [](CNNLayerPtr origin){
+            return !LayerInfo(origin).isReshape();
+        });
+
+        for (int i=0; i != prevLayers.size(); i++) {
+            auto & prevIndirectLayer = prevLayers[i];
+            if ((LayerInfo(l).isMemory() && LayerInfo(prevIndirectLayer).isConcat()) ||
+                (LayerInfo(l).isConcat() && LayerInfo(prevIndirectLayer).isCrop())) {
+                if (LayerInfo(prevIndirectLayer).isCrop()) {
+                    auto cropLayer = LayerInfo(prevIndirectLayer).as<CropLayer *>();
+                    size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
+                    if (ALIGN(cropOffset, 8) != cropOffset) {
+                        // The crop will be replaced by affine.
+                        // Copy layer insertion is not required
+                        continue;
+                    }
                 }
+                auto prevLayer = CNNNetPrevLayer(l, i);
+                std::string copyName = std::string("copy_") + std::to_string(numCopyLayers++);
+                gnalog() << "Inserted " << copyName << " between: " << l->name << " and " << prevLayer->name
+                         << std::endl;
+
+                CNNLayerPtr copyLayer =
+                    std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
+
+                auto inputData = l->insData[i].lock();
+                auto newDims = inputData->dims;
+
+                std::reverse(begin(newDims), end(newDims));
+
+                auto dataPtr = std::make_shared<Data>(copyName,
+                                                      TensorDesc(inputData->precision,
+                                                                 newDims,
+                                                                 inputData->layout));
+
+                auto copyWithQuant = quantized ?
+                                     InferenceEngine::injectData<QuantizedLayerParams>(copyLayer) :
+                                     copyLayer;
+                dataPtr->creatorLayer = copyWithQuant;
+                copyWithQuant->outData.push_back(dataPtr);
+                CNNNetworkInsertLayer(prevLayer, l, copyWithQuant);
             }
-            std::string copyName = std::string("copy_") + std::to_string(numCopyLayers++);
-            gnalog() << "Inserted "<< copyName << " between: " << l->name << " and " << prevLayer->name << std::endl;
-
-            CNNLayerPtr copyLayer =
-            std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
-
-            auto inputData = l->insData[0].lock();
-            auto newDims = inputData->dims;
-
-            std::reverse(begin(newDims), end(newDims));
-
-            auto dataPtr = std::make_shared<Data>(copyName,
-                                                  TensorDesc(inputData->precision,
-                                                             newDims,
-                                                             inputData->layout));
-
-            auto copyWithQuant = quantized ?
-                                    InferenceEngine::injectData<QuantizedLayerParams>(copyLayer) :
-                                                                                            copyLayer;
-            dataPtr->creatorLayer = copyWithQuant;
-            copyWithQuant->outData.push_back(dataPtr);
-            CNNNetworkInsertLayer(prevLayer, l, copyWithQuant);
         }
     }
 }
 
-void InsertAligningFilterLayerPass::run() {
+void InsertConcatAligningFilterPass::run() {
+    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+    // aligning specific not required in fp32 mode
+    if (getPassManager()->getPolicy().ConcatAlignmentPolicy == Policy::ConcatAlignment::DISABLED_FOR_FP32 && !quantized) {
+        return;
+    }
+    // currently concat layer only supports 2 bytes in int16 and int8 mode. In fp32 mode this no necessary but usefull for testing
+    const int bytesPerConcatElement = 2;
+
+    int numOfFilterLayers = 0;
+
+    for (auto & l : *pLayers) {
+        LayerInfo info(l);
+        if (!info.isConcat()) continue;
+        uint32_t offset = 0;
+        auto concatLayer = info.as<ConcatLayer*>();
+
+        for (auto && input : concatLayer->insData) {
+            auto concatInput = input.lock();
+            if (!concatInput) {
+                THROW_GNA_EXCEPTION << "cannot get insdata for layer: " << l->name;
+            }
+            auto dims = concatInput->getDims();
+            auto outputSize = details::product(++dims.begin(), dims.end());
+
+            // correcting offset by copy layer insertion. This can be improved by collapsing copy and affine or diagonal later-on
+            if (ALIGN64(offset) != offset) {
+                auto prevLayer = concatInput->getCreatorLayer().lock();
+                // input layer parameters are copied not using GNA-primitives - so nothing to allign here.
+                if (LayerInfo(prevLayer).isInput()) continue;
+
+                gnalog() << "Inserted Concat Aligning Layer between: " << prevLayer->name << " and " << l->name << std::endl;
+
+                // insert the filter
+                auto filterName = std::string("ConcatAlignFilter_") + std::to_string(numOfFilterLayers++);
+                auto concatAligningFilter =
+                    std::make_shared<WeightableLayer>(LayerParams({filterName, "ConcatAlignFilter", Precision::FP32}));
+
+                if (dims.size() != 2) {
+                    THROW_GNA_EXCEPTION << "unsupported concat input of dims.size()=" << dims.size() << ", layer=" << prevLayer->name;
+                }
+
+                auto num_rows_in = dims[1];
+                size_t aligned64_offset = std::max(0, static_cast<int>(ALIGN64(offset) - 64));
+                size_t num_rows_padded = (offset - aligned64_offset) / bytesPerConcatElement;
+                size_t num_rows_out = num_rows_padded + num_rows_in;
+
+                // encodes offset to beginning of split layer input
+                concatAligningFilter->params["output_offset"] = std::to_string(aligned64_offset);
+                // encodes original output size
+                concatAligningFilter->params["original_num_rows"] = std::to_string(num_rows_in);
+
+                std::vector<float> filterWeights(num_rows_out * num_rows_in, 0.f);
+
+                for (int i = 0; i != outputSize; i++) {
+                    filterWeights[num_rows_padded] = 1.0f;
+                    num_rows_padded += outputSize + 1;
+                }
+
+                concatAligningFilter->_weights = make_shared_blob<float>(concatInput->precision, Layout::C, filterWeights);
+
+                // modifying output rows to be used - to avoid modification to original concat we are store num of elements in params
+                dims[1] = num_rows_out;
+
+                auto outData = std::make_shared<Data>(filterName,
+                                                      TensorDesc(concatInput->precision,
+                                                                 dims,
+                                                                 concatInput->layout));
+
+                auto filterWithQuant = quantized ?
+                                       InferenceEngine::injectData<QuantizedLayerParams>(concatAligningFilter) :
+                                       concatAligningFilter;
+                outData->creatorLayer = filterWithQuant;
+                filterWithQuant->outData.push_back(outData);
+
+                CNNNetworkInsertLayer(prevLayer, l, filterWithQuant);
+            }
+            offset += outputSize * bytesPerConcatElement;
+        }
+    }
+}
+
+void InsertSplitAligningFilterPass::run() {
     // currently split layer only supports 2 bytes in int16 and int8 mode. In fp32 mode this no necessary but usefull for testing
     const int bytesPerSplitElement = 2;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
@@ -642,7 +759,7 @@ void SubstituteScaleShiftBroadCastPass::run() {
 
         gnalog() << "Substitution ScaleShift broadcast for layer: " << l->name << "\n";
         // approach 1 - weights tiling
-        if (getPassManager()->getPolicy().ScaleShiftPolicy == Policy::WEIGHTS_TILING) {
+        if (getPassManager()->getPolicy().ScaleShiftPolicy == Policy::ScaleShift::WEIGHTS_TILING) {
             auto tileBlob = [](Blob::Ptr &blob, size_t TileTo){
                 auto weightsElements = blob->size();
                 auto weightsBytes = blob->byteSize();

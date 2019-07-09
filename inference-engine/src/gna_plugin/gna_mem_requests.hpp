@@ -141,8 +141,8 @@ class GNAMemRequestsQueue {
      * @param ptr_out
      * @param num_bytes
      */
-    void reserve_ptr(void *ptr_out, size_t num_bytes)  {
-        futureHeap().push_back({regionType(), REQUEST_ALLOCATE, ptr_out, nullptr, 1, num_bytes});
+    void reserve_ptr(void *ptr_out, size_t num_bytes, size_t alignment = 1)  {
+        futureHeap().push_back({regionType(), REQUEST_ALLOCATE, ptr_out, nullptr, 1, num_bytes, alignment});
     }
 
     /**

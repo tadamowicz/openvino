@@ -104,9 +104,15 @@ DECL_PASS(HandleMultipleActivationsForTheLayer);
 DECL_PASS(InsertCopyLayer);
 
 /**
- * @brief aligned filter layer insertion required in cases when split/slice have output connections on not aligned addresses
+ * @brief aligning filter layer insertion required in cases when split/slice have output connections on not aligned addresses
  */
-DECL_PASS(InsertAligningFilterLayer);
+DECL_PASS(InsertSplitAligningFilter);
+
+/**
+ * @brief concat-aligning filter layer insertion required in cases when concat inputs size are not 64-aligned
+ */
+DECL_PASS(InsertConcatAligningFilter);
+
 
 /**
 * @brief unrolled LSTM cell layer in supported GNA primitives

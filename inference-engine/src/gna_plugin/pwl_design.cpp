@@ -620,7 +620,6 @@ void PwlDesign16(const DnnActivation activation_type,
         case kActRelu:
             std::cerr << "Rectilinear activation function design not yet implemented!" << std::endl;
             throw -1;
-            break;
         case kActIdentity:
         case kActKaldiLstmClipping:  // clipping of IDENTITY is more aggressive than Kaldi
             {
