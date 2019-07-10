@@ -248,7 +248,7 @@ void GNAPlugin::ExportScores(void *ptr_dst,
                             break;
                         }
                         case 4 : {
-                            *dst_ptr  = *reinterpret_cast<const int32_t*>(input_ptr);
+                            *dst_ptr = *reinterpret_cast<const int32_t *>(input_ptr);
                             break;
                         }
                         default:
@@ -2055,6 +2055,7 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
     auto nnet = std::get<0>(*freeNnet).get();
     auto idx = static_cast<uint32_t>(std::distance(std::begin(nnets), freeNnet));
 
+    int inputNum = 0;
     for (auto &input : inputs) {
         auto inputLayout = input.second->layout();
         if (inputLayout != Layout::NC && inputLayout != Layout::CN && inputLayout != NCHW) {
@@ -2092,7 +2093,7 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
         ImportFrames(get_ptr_inputs_global(input.first)[idx],
                      input.second->cbuffer().as<float *>(),
                      input.second->precision(),
-                     inputScaleFactors.size() <= idx ? 1.0 : inputScaleFactors[idx],
+                     sw_fp32 ? 1.0f : inputScaleFactors[inputNum],
                      orientation_in[input.first],
                      dims[dims.size() - 1],
                      is2D ? dims[1] : dims[dims.size() - 1],
@@ -2111,6 +2112,7 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
                            num_rotate_rows,
                            num_rotate_columns);
         }
+        ++inputNum;
     }
 
     if (!gnadevice) {
@@ -2139,7 +2141,7 @@ void GNAPlugin::Wait(uint32_t idx) {
         dnn.WriteDnnText("Net_.txt", kDnnFloat);
         dnn.WriteInputAndOutputText();
     }
-    dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets.front())->obj);
+    dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets[idx])->obj);
 #endif
     if (result.size() != 1) {
         THROW_GNA_EXCEPTION << "Invalid number of outputs for infer request: " << result.size() << ",  only 1 supported";
@@ -2460,12 +2462,16 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         if (inputScaleFactors.size() <= scaleForInput) {
             inputScaleFactors.resize(scaleForInput + 1, 1.f);
         }
-        inputScaleFactors[scaleForInput] = std::stod(value);
+        inputScaleFactors[scaleForInput] = InferenceEngine::CNNLayer::ie_parse_float(value);
     });
 
     if (inputScaleFactors.empty()) {
         if_set(GNA_CONFIG_KEY(SCALE_FACTOR), [&] {
-            inputScaleFactors.push_back(std::stod(value));
+            auto scaleFactor = InferenceEngine::CNNLayer::ie_parse_float(value);
+            if (fp32eq(scaleFactor, 0.0f)) {
+                THROW_GNA_EXCEPTION << "input scale factor of 0.0f not supported";
+            }
+            inputScaleFactors.push_back(scaleFactor);
         });
     }
 
@@ -2573,6 +2579,10 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
             THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
         }
     });
+
+    if (sw_fp32 && gna_lib_async_threads_num > 1) {
+        THROW_GNA_EXCEPTION << "GNA plugin not support async mode on GNA_SW_FP32!";
+    }
 }
 
 /**
