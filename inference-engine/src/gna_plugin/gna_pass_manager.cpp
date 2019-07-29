@@ -59,17 +59,21 @@ static void insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
     auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
 
     // TODO: diagonal size
-    std::vector<float> weightsValues(nextLayer->outData[0]->dims[0], fillValue);
-    diagLayer->_weights = make_shared_blob<float>(nextLayer->outData[0]->precision, Layout::C, weightsValues);
-    auto newDims = nextLayer->outData[0]->getDims();
-    auto dataPtr = std::make_shared<Data>(diagName,
-                                          TensorDesc(nextLayer->outData[0]->precision,
-                                                     newDims,
-                                                     nextLayer->outData[0]->layout));
+    auto dimsIndex = nextLayer->outData[0]->getTensorDesc().getDims().size() - 1;
+    std::vector<float> weightsValues(nextLayer->outData[0]->getTensorDesc().getDims()[dimsIndex], fillValue);
+    diagLayer->_weights = make_shared_blob<float>(
+            TensorDesc(
+                nextLayer->outData[0]->getTensorDesc().getPrecision(),
+                SizeVector({weightsValues.size()}),
+                Layout::C));
+    diagLayer->_weights->allocate();
+    CopyVectorToBlob(diagLayer->_weights, weightsValues);
+    auto dataPtr = std::make_shared<Data>(diagName, nextLayer->outData[0]->getTensorDesc());
+
     auto diagonalWithQuant = quantized ?
                              InferenceEngine::injectData<QuantizedLayerParams>(diagLayer) : diagLayer;
 
-    dataPtr->creatorLayer = diagonalWithQuant;
+    dataPtr->getCreatorLayer() = diagonalWithQuant;
     diagonalWithQuant->outData.push_back(dataPtr);
 
     // actual insertion
@@ -88,16 +92,11 @@ static CNNLayerPtr InsertCopyLayer(CNNLayerPtr prevLayer, CNNLayerPtr nextLayer,
     CNNLayerPtr copyLayer = std::make_shared<GenericLayer>(LayerParams({copyName, "Copy", Precision::FP32}));
 
     auto inputData = nextLayer->insData[beforeIdx].lock();
-    auto newDims = inputData->getDims();
-    auto dataPtr = std::make_shared<Data>(copyName,
-                                          TensorDesc(inputData->precision,
-                                                     inputData->getDims(),
-                                                     inputData->layout));
-
+    auto dataPtr = std::make_shared<Data>(copyName, inputData->getTensorDesc());
     auto copyWithQuant = quantized ?
                          InferenceEngine::injectData<QuantizedLayerParams>(copyLayer) :
                          copyLayer;
-    dataPtr->creatorLayer = copyWithQuant;
+    dataPtr->getCreatorLayer() = copyWithQuant;
     copyWithQuant->outData.push_back(dataPtr);
     CNNNetworkInsertLayer(prevLayer, nextLayer, copyWithQuant);
     return copyWithQuant;
@@ -286,14 +285,14 @@ void SubstitutePReluPass::run() {
         CNNLayer* next = nullptr;
         if (layer == nullptr) return next;
         if (layer->outData.size() != 1) return next;
-        return layer->outData[0]->inputTo.begin()->second.get();
+        return layer->outData[0]->getInputTo().begin()->second.get();
     };
 
     // TODO: unit tests for bad cases
     for (auto & l : *pLayers) {
         // assume l is starting layer, that is followed by eltwise_sum(relu, negate/relu/scale/negate)
         if (l->outData.size() != 1) continue;
-        auto &outputLayers = l->outData[0]->inputTo;
+        auto &outputLayers = l->outData[0]->getInputTo();
         if (outputLayers.size() != 2) continue;
 
         // one of followed layers need to be generic relu
@@ -328,8 +327,8 @@ void SubstitutePReluPass::run() {
         if (!LayerInfo(sum).isEltwiseSum()) continue;
         if (sum->insData.size() != 2) continue;
 
-        auto s1 = sum->insData[0].lock()->creatorLayer.lock().get();
-        auto s2 = sum->insData[1].lock()->creatorLayer.lock().get();
+        auto s1 = sum->insData[0].lock()->getCreatorLayer().lock().get();
+        auto s2 = sum->insData[1].lock()->getCreatorLayer().lock().get();
 
         if (s1 != static_cast<InferenceEngine::CNNLayer *>(first) &&
             s2 != static_cast<InferenceEngine::CNNLayer *>(first)) {
@@ -345,10 +344,10 @@ void SubstitutePReluPass::run() {
         // pointing relu to output of eltwise_summ
         relu1->outData = sum->outData;
         // changing creator layer
-        relu1->outData[0]->creatorLayer = relu1;
+        relu1->outData[0]->getCreatorLayer() = relu1;
         // pointing back to relu if any
-        if (!relu1->outData[0]->inputTo.empty()) {
-            auto summOutputLayer = relu1->outData[0]->inputTo.begin()->second;
+        if (!relu1->outData[0]->getInputTo().empty()) {
+            auto summOutputLayer = relu1->outData[0]->getInputTo().begin()->second;
             summOutputLayer->insData.clear();
             summOutputLayer->insData.push_back(relu1->outData[0]);
         }
@@ -382,10 +381,10 @@ void ReversePermutationsPass::run() {
         if (layer->outData.empty()) {
             return nullptr;
         }
-        if (layer->outData.front()->inputTo.size() != 1) {
+        if (layer->outData.front()->getInputTo().size() != 1) {
             return nullptr;
         }
-        auto next = layer->outData.front()->inputTo.begin()->second;
+        auto next = layer->outData.front()->getInputTo().begin()->second;
 
         if (LayerInfo(next).isReshape()) return nextLayerSkipReshape(next);
 
@@ -470,22 +469,17 @@ void InsertIdentityLayerPass::run() {
             CNNLayerPtr activationLayer =
                 std::make_shared<GenericLayer>(LayerParams({activationName, "identity", Precision::FP32}));
             auto inputData = l->insData[0].lock();
-            auto newDims = inputData->dims;
-            std::reverse(begin(newDims), end(newDims));
 
-            auto dataPtr = std::make_shared<Data>("identity_data_" + std::to_string(numOfIdentityLayers),
-                                                  TensorDesc(inputData->precision,
-                                                             newDims,
-                                                             inputData->layout));
+            auto dataPtr = std::make_shared<Data>("identity_data_" + std::to_string(numOfIdentityLayers), inputData->getTensorDesc());
             auto activationLayerWithQuant = quantized ?
                                             InferenceEngine::injectData<QuantizedLayerParams>(activationLayer) :
                                             activationLayer;
-            dataPtr->creatorLayer = activationLayerWithQuant;
+            dataPtr->getCreatorLayer() = activationLayerWithQuant;
             activationLayerWithQuant->outData.push_back(dataPtr);
             // wether 1 identity or all outputs TODO possible grouping here, need to implement special groupped inserter
             bool notAll = false;
             for (auto && nextData  : prev->outData) {
-                for (auto && nextLayer : nextData->inputTo) {
+                for (auto && nextLayer : nextData->getInputTo()) {
                     if (nextLayer.second.get() == l.get())
                         continue;
                     if (getCandidatesForIdentityInsertion(nextLayer.second).empty()) {
@@ -613,20 +607,27 @@ void InsertConcatAligningFilterPass::run() {
                     identityIdx += num_rows_in + 1;
                 }
 
-                concatAligningFilter->_weights = make_shared_blob<float>(concatInput->precision, Layout::C, filterWeights);
+                concatAligningFilter->_weights = make_shared_blob<float>(
+                                        TensorDesc(
+                                            concatInput->getTensorDesc().getPrecision(),
+                                            SizeVector({filterWeights.size()}),
+                                            Layout::C));
+                concatAligningFilter->_weights->allocate();
+
+                CopyVectorToBlob(concatAligningFilter->_weights, filterWeights);
 
                 // modifying output rows to be used - to avoid modification to original concat we are store num of elements in params
                 dims[1] = num_rows_out;
 
                 auto outData = std::make_shared<Data>(filterName,
-                                                      TensorDesc(concatInput->precision,
+                                                      TensorDesc(concatInput->getPrecision(),
                                                                  dims,
-                                                                 concatInput->layout));
+                                                                 concatInput->getLayout()));
 
                 auto filterWithQuant = quantized ?
                                        InferenceEngine::injectData<QuantizedLayerParams>(concatAligningFilter) :
                                        concatAligningFilter;
-                outData->creatorLayer = filterWithQuant;
+                outData->getCreatorLayer() = filterWithQuant;
                 filterWithQuant->outData.push_back(outData);
 
                 CNNNetworkInsertLayer(prevLayer, l, filterWithQuant);
@@ -712,7 +713,7 @@ void ReorderConcatInputsPass::run() {
 
         auto linkOutData = std::make_shared<Data>(linkName,
                                               TensorDesc(Precision::FP32,
-                                                         {1},
+                                                         SizeVector({1}),
                                                          Layout::C));
         linkOutData->getCreatorLayer() = link;
 
@@ -763,7 +764,6 @@ void InsertSplitAligningFilterPass::run() {
 
 
                 auto inputData = splitOutput;
-                auto newDims = splitOutput->dims;
 
                 size_t aligned64_offset = std::max(0, static_cast<int>(ALIGN64(currentOffset) - 64));
                 size_t newOutputSize = (currentOffset + ALIGN(outputSize, 8) * bytesPerSplitElement - aligned64_offset)
@@ -772,12 +772,12 @@ void InsertSplitAligningFilterPass::run() {
                 // encodes offset to beginning of split layer input
                 filterLayer->params["offset"] = std::to_string(aligned64_offset);
 
-                auto dims = splitOutput->getDims();
+                auto dims = splitOutput->getTensorDesc().getDims();
                 if (dims.size() > 3) {
                     THROW_GNA_EXCEPTION << "unsupported split layer dims size: " << dims.size();
                 }
-                auto num_rows_out = dims[1]  * (dims.size() != 2 ? dims[2] : 1);
 
+                auto num_rows_out = dims[1]  * (dims.size() != 2 ? dims[2] : 1);
                 std::vector<float> filterWeights(newOutputSize * num_rows_out, 0.f);
 
                 auto offset = (currentOffset - aligned64_offset) / bytesPerSplitElement;
@@ -787,19 +787,22 @@ void InsertSplitAligningFilterPass::run() {
                     offset += newOutputSize + 1;
                 }
 
-                filterLayer->_weights = make_shared_blob<float>(inputData->precision, Layout::C, filterWeights);
-
-                std::reverse(begin(newDims), end(newDims));
+                filterLayer->_weights = make_shared_blob<float>(TensorDesc(
+                        inputData->getTensorDesc().getPrecision(),
+                        SizeVector({filterWeights.size()}),
+                        Layout::C));
+                filterLayer->_weights->allocate();
+                CopyVectorToBlob(filterLayer->_weights, filterWeights);
 
                 auto outData = std::make_shared<Data>(filterName,
-                                                      TensorDesc(splitOutput->precision,
-                                                                 newDims,
-                                                                 inputData->layout));
+                                                      TensorDesc(splitOutput->getTensorDesc().getPrecision(),
+                                                                 splitOutput->getTensorDesc().getDims(),
+                                                                 inputData->getTensorDesc().getLayout()));
 
                 auto filterWithQuant = quantized ?
                                        InferenceEngine::injectData<QuantizedLayerParams>(filterLayer) :
                                        filterLayer;
-                outData->creatorLayer = filterWithQuant;
+                outData->getCreatorLayer() = filterWithQuant;
                 filterWithQuant->outData.push_back(outData);
                 CNNNetworkInsertLayer(l, nullptr, filterWithQuant, splitOutIndex);
             }
