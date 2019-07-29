@@ -74,7 +74,7 @@ using namespace InferenceEngine::details;
 #define PAGE_SIZE_BYTES 4096
 
 #define FROM_IR_DIM(mem, idx)\
-((mem->dims.size() > idx - 1) ? mem->dims[idx - 1] : 1)
+((mem->getTensorDesc().getDims().size() > idx - 1) ? mem->getTensorDesc().getDims()[mem->getTensorDesc().getDims().size() - idx] : 1)
 
 inline int16_t GNAPluginNS::ConvertFloatToInt16(float src) {
         float rounding_value = (src > 0) ? 0.5f : -0.5f;
@@ -370,7 +370,7 @@ void GNAPlugin::fillConcatConnections(InferenceEngine::CNNLayerPtr layer) {
             THROW_GNA_EXCEPTION << "Input layer pointer for concat is unexpectedly absent";
         }
 
-        auto ptrConcatLayerInput = dataInput->creatorLayer.lock();
+        auto ptrConcatLayerInput = dataInput->getCreatorLayer().lock();
         if (!ptrConcatLayerInput) {
             THROW_GNA_EXCEPTION << "Input layer for concat is unexpectedly absent";
         }
@@ -378,8 +378,9 @@ void GNAPlugin::fillConcatConnections(InferenceEngine::CNNLayerPtr layer) {
                 GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo({ptrConcatLayerInput->name, concat_size}));
 
         size_t layer_size =
-                     InferenceEngine::details::product(begin(dataInput->dims),
-                                                      end(dataInput->dims)) * dataInput->precision.size();
+                    InferenceEngine::details::product(begin(
+                            dataInput->getTensorDesc().getDims()),
+                            end(dataInput->getTensorDesc().getDims())) * dataInput->getTensorDesc().getPrecision().size();
         concat_size += layer_size;
     }
     layerInfoItem.reserved_size = concat_size;
@@ -395,7 +396,7 @@ void GNAPlugin::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) {
     if (!dataInput) {
         THROW_GNA_EXCEPTION << "Input layer pointer for split/slice is unexpectedly absent";
     }
-    auto ptrSplitLayerInput = dataInput->creatorLayer.lock();
+    auto ptrSplitLayerInput = dataInput->getCreatorLayer().lock();
     if (!ptrSplitLayerInput) {
         THROW_GNA_EXCEPTION << "Input layer for split/slice is unexpectedly absent";
     }
@@ -417,10 +418,10 @@ void GNAPlugin::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) {
             }
 
             padding = std::max(padding, LayerInfo(ptrSplitLayerOutput).paddingSize())
-                                                        * dataOutput->precision.size();
+                                                        * dataOutput->getPrecision().size();
             output_layer_size =
-                    InferenceEngine::details::product(begin(dataOutput->dims),
-                                                     end(dataOutput->dims)) * dataOutput->precision.size();
+                    InferenceEngine::details::product(begin(dataOutput->getTensorDesc().getDims()),
+                                                     end(dataOutput->getTensorDesc().getDims())) * dataOutput->getTensorDesc().getPrecision().size();
 
             if (ptrSplitLayerOutput->type == "AffineFilter") {
                 size_t aligned64_offset = ptrSplitLayerOutput->GetParamAsInt("offset");
@@ -435,8 +436,10 @@ void GNAPlugin::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) {
     layerInfoItem.reserved_size = split_size;
     layerInfoItem.splitInputLayer =
                     GNAPlugin::GNASplitLayer::SplitConnectedLayerInfo({ptrSplitLayerInput->type, 0,
-                                                                    InferenceEngine::details::product(begin(dataInput->dims),
-                                                                    end(dataInput->dims)) * dataInput->precision.size()});
+                                                                    InferenceEngine::details::product(
+                                                                        begin(dataInput->getTensorDesc().getDims()),
+                                                                        end(dataInput->getTensorDesc().getDims()))
+                                                                        * dataInput->getTensorDesc().getPrecision().size()});
     split_connection.emplace(id, layerInfoItem);
 }
 
@@ -486,7 +489,7 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     void *ptr_biases;
 
     // TODO: questionable why for biases that are not in IR we inventing precision
-    auto biasPrecision = convolution._biases ? convolution._biases->precision() : outputs->precision;
+    auto biasPrecision = convolution._biases ? convolution._biases->getTensorDesc().getPrecision() : outputs->getTensorDesc().getPrecision();
 
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
@@ -502,9 +505,9 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             num_feature_maps *  num_feature_map_columns * num_feature_map_rows + num_input_padding,
                             1,
                             num_rows_out * convolution._out_depth,
-                            inputs->precision.size(),
-                            outputs->precision.size(),
-                            convolution._weights->precision().size(),
+                            inputs->getTensorDesc().getPrecision().size(),
+                            outputs->getTensorDesc().getPrecision().size(),
+                            convolution._weights->getTensorDesc().getPrecision().size(),
                             biasPrecision.size(),
                             convolution._out_depth,
                             num_filter_rows,
@@ -525,10 +528,10 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     num_feature_maps = convolution._out_depth;  // = number of filters
 
     size_t num_data_bytes_out =
-                        InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
-                                                                                * outputs->precision.size();
+                        InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
+                                                                                * outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->precision.size();
+    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->getPrecision().size();
 
     auto connectedInputLayer = connectInput(layer, ptr_inputs, num_data_bytes_in).input;
 
@@ -619,11 +622,11 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             num_rows_in,
                             num_columns_in,
                             num_rows_out,
-                            input->precision.size(),
-                            outputs->precision.size(),
+                            input->getPrecision().size(),
+                            outputs->getPrecision().size(),
                             // TODO: only fp32 and Int16 tested
-                            quantized == nullptr ? input->precision.size() : 2,
-                            quantized == nullptr ? input->precision.size() : 4,
+                            quantized == nullptr ? input->getPrecision().size() : 2,
+                            quantized == nullptr ? input->getPrecision().size() : 4,
                             quantized == nullptr ? 1 : quantized->_weights_quant.scale,
                             quantized == nullptr ? 1 : quantized->_dst_quant.scale,
                             ptr_inputs,
@@ -636,11 +639,11 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
     std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
 
-    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
-        * outputs->precision.size();
+    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
+        * outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = InferenceEngine::details::product(begin(input->dims), end(input->dims))
-        * input->precision.size();
+    size_t num_data_bytes_in = InferenceEngine::details::product(begin(input->getDims()), end(input->getDims()))
+        * input->getPrecision().size();
 
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
@@ -707,8 +710,8 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             num_columns_in * num_rows_in ,
                             1,
                             num_columns_out * num_rows_out,
-                            inputs->precision.size(),
-                            outputs->precision.size(),
+                            inputs->getPrecision().size(),
+                            outputs->getPrecision().size(),
                             pooling._kernel[X_AXIS],
                             pooling._kernel[X_AXIS],
                             num_columns_in,
@@ -717,10 +720,10 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             ptr_inputs,
                             ptr_outputs);
 
-    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
-        * outputs->precision.size();
+    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
+        * outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->precision.size();
+    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->getPrecision().size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -755,8 +758,8 @@ void GNAPlugin::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
                           num_columns_in,
                           ALIGN(num_rows_out, 8),
                           num_columns_out,
-                          inputs->precision.size(),
-                          outputs->precision.size(),
+                          inputs->getPrecision().size(),
+                          outputs->getPrecision().size(),
                           quantized == nullptr ? 1 : quantized->_dst_quant.scale,
                           num_rows_out + num_padding_out,
                           num_columns_out,
@@ -764,9 +767,9 @@ void GNAPlugin::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
                           ptr_outputs);
 
     size_t num_data_bytes_out = ALIGN(InferenceEngine::details::product(
-                                                            begin(outputs->dims), end(outputs->dims)), 8)
-                                                                                * outputs->precision.size();
-    size_t num_data_bytes_in = num_columns_in * ALIGN(num_rows_in, 8) * inputs->precision.size();
+                                                            begin(outputs->getDims()), end(outputs->getDims())), 8)
+                                                                                * outputs->getPrecision().size();
+    size_t num_data_bytes_in = num_columns_in * ALIGN(num_rows_in, 8) * inputs->getPrecision().size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -787,7 +790,7 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
     if (!prevInput0 || !prevInput1) {
         THROW_GNA_EXCEPTION << "Input layer for concat is unexpectedly absent";
     }
-    if (prevInput0->precision.size() != prevInput1->precision.size()) {
+    if (prevInput0->getPrecision().size() != prevInput1->getPrecision().size()) {
         THROW_GNA_EXCEPTION << "Different precision for Concat input layers are not supported";
     }
 
@@ -868,10 +871,10 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         }
 
         // TODO: add unit tests for 4d crops blobs
-        uint32_t num_rows_in = FROM_IR_DIM(inputs, inputs->getDims().size() - cropLayer->axis[0]);
+        uint32_t num_rows_in = FROM_IR_DIM(inputs, cropLayer->axis[0]);
         uint32_t num_columns_in = 1;
 
-        uint32_t num_rows_out = FROM_IR_DIM(outputs, outputs->getDims().size() - cropLayer->axis[0]);
+        uint32_t num_rows_out = FROM_IR_DIM(outputs, cropLayer->axis[0]);
         uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
         void *ptr_inputs;
@@ -890,9 +893,9 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
                                 num_rows_in + num_padding,
                                 num_columns_in,
                                 num_rows_out,
-                                inputs->precision.size(),
+                                inputs->getPrecision().size(),
                                 4,
-                                quantized == nullptr ? inputs->precision.size() : 2,
+                                quantized == nullptr ? inputs->getPrecision().size() : 2,
                                 4,
                                 quantized == nullptr ? 1 : quantized->_weights_quant.scale,
                                 quantized == nullptr ? 1 : quantized->_dst_quant.scale,
@@ -904,10 +907,10 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
         size_t num_data_bytes_out =
         InferenceEngine::details::product(
-                                          begin(outputs->dims), end(outputs->dims)) * 4;
+                                          begin(outputs->getDims()), end(outputs->getDims())) * 4;
 
         size_t num_data_bytes_in = num_columns_in *
-                ALIGN(num_rows_in, 8) * inputs->precision.size();
+                ALIGN(num_rows_in, 8) * inputs->getPrecision().size();
 
         connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
         connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -940,16 +943,16 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     if (quantized) {
         if (eltwise._operation == EltwiseLayer::Sum) {
-            if (inputs4Bytes->precision.size() != 4) {
+            if (inputs4Bytes->getPrecision().size() != 4) {
                 std::swap(inputs4Bytes, inputs2Bytes);
                 biasesLayerIdx = 0;
             }
-            IE_ASSERT(inputs2Bytes->precision.size() == 2);
-            IE_ASSERT(inputs4Bytes->precision.size() == 4);
+            IE_ASSERT(inputs2Bytes->getPrecision().size() == 2);
+            IE_ASSERT(inputs4Bytes->getPrecision().size() == 4);
         } else {
             // for mul both inputs should be 2 bytes precision
-            IE_ASSERT(inputs2Bytes->precision.size() == 2);
-            IE_ASSERT(inputs4Bytes->precision.size() == 2);
+            IE_ASSERT(inputs2Bytes->getPrecision().size() == 2);
+            IE_ASSERT(inputs4Bytes->getPrecision().size() == 2);
         }
     }
 
@@ -971,11 +974,11 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
                             num_rows_in + num_padding,
                             num_columns_in,
                             num_rows_out + num_padding,
-                            inputs2Bytes->precision.size(),
-                            outputs->precision.size(),
+                            inputs2Bytes->getPrecision().size(),
+                            outputs->getPrecision().size(),
                             // TODO: only fp32 and Int16 tested
-                            quantized == nullptr ? inputs2Bytes->precision.size() : 2,
-                            quantized == nullptr ? inputs4Bytes->precision.size() : 4,
+                            quantized == nullptr ? inputs2Bytes->getPrecision().size() : 2,
+                            quantized == nullptr ? inputs4Bytes->getPrecision().size() : 4,
                             quantized == nullptr ? 1 : quantized->_weights_quant.scale,
                             quantized == nullptr ? 1 : quantized->_dst_quant.scale,
                             ptr_inputs,
@@ -989,10 +992,10 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
 #endif
 
     size_t num_data_bytes_out =
-        InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims)) * outputs->precision.size();
+        InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims())) * outputs->getPrecision().size();
 
     size_t num_data_bytes_in =
-        num_columns_in * (num_rows_in + num_padding) * inputs2Bytes->precision.size();
+        num_columns_in * (num_rows_in + num_padding) * inputs2Bytes->getPrecision().size();
 
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 1 - biasesLayerIdx);
@@ -1033,7 +1036,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
 
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
-    auto inputPrecision = quantized ? Precision(Precision::I16) : inputs->precision;
+    auto inputPrecision = quantized ? Precision(Precision::I16) : inputs->getPrecision();
 
     uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
     uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
@@ -1046,7 +1049,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     void *ptr_biases;
 
     // TODO: questionable why for biases that are no in Model we inventing precision
-    auto biasPrecision = weightable._biases ? weightable._biases->precision() : outputs->precision;
+    auto biasPrecision = weightable._biases ? weightable._biases->getTensorDesc().getPrecision() : outputs->getPrecision();
 
     // layer without biases might be connected to functional layer without activations
     auto prevLayer = CNNNetPrevLayer(layer);
@@ -1073,8 +1076,8 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                             num_columns_in,
                             num_rows_out,
                             inputPrecision.size(),
-                            outputs->precision.size(),
-                            weightable._weights->precision().size(),
+                            outputs->getPrecision().size(),
+                            weightable._weights->getTensorDesc().getPrecision().size(),
                             biasPrecision.size(),
                             quantized == nullptr ? 1 : quantized->_weights_quant.scale,
                             quantized == nullptr ? 1 : quantized->_dst_quant.scale,
@@ -1084,10 +1087,10 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                             ptr_biases,
                             isDiag);
 
-    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
-        * outputs->precision.size();
+    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
+        * outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->precision.size();
+    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->getPrecision().size();
 
     auto connectionInfo = connectInput(layer, useBiasConnection ? ptr_biases : ptr_inputs, num_data_bytes_in);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -1107,7 +1110,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
         /**
          * TODO: weights transpose happened after quantisation might result in poor quality for in 8 - move this to passes
          */
-        if (weightable._weights->precision() == Precision::I8) {
+        if (weightable._weights->getTensorDesc().getPrecision() == Precision::I8) {
             THROW_IE_EXCEPTION << "[GNA plugin] Unsupported permute operation for 8 bit weights for layer: " << layer->name;
         }
 
@@ -1232,7 +1235,7 @@ void GNAPlugin::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_rows_in = filterLayer->_weights->size() / num_rows_out;
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
-    auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->precision() : outputs->precision;
+    auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->getTensorDesc().getPrecision() : outputs->getPrecision();
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
 #ifdef  PLOT
@@ -1243,9 +1246,9 @@ void GNAPlugin::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             num_rows_in + num_padding,
                             num_columns_in,
                             num_rows_out,
-                            inputs->precision.size(),
-                            outputs->precision.size(),
-                            filterLayer->_weights->precision().size(),
+                            inputs->getPrecision().size(),
+                            outputs->getPrecision().size(),
+                            filterLayer->_weights->getTensorDesc().getPrecision().size(),
                             biasPrecision.size(),
                             quantized == nullptr ? 1 : quantized->_weights_quant.scale,
                             quantized == nullptr ? 1 : quantized->_dst_quant.scale,
@@ -1257,10 +1260,10 @@ void GNAPlugin::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     size_t num_data_bytes_out =
         InferenceEngine::details::product(
-            begin(outputs->dims), end(outputs->dims)) * 4;
+            begin(outputs->getDims()), end(outputs->getDims())) * 4;
 
     size_t num_data_bytes_in = num_columns_in *
-        ALIGN(num_rows_in, 8) * inputs->precision.size();
+        ALIGN(num_rows_in, 8) * inputs->getPrecision().size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -1327,16 +1330,16 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
 #ifdef  PLOT
     gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
-    auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->precision() : outputs->precision;
+    auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->getTensorDesc().getPrecision() : outputs->getPrecision();
     dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
     auto &currentComponent = dnnComponentsForLayer.back().second;
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
                             num_columns_in,
                             num_rows_out,
-                            inputs->precision.size(),
-                            outputs->precision.size(),
-                            filterLayer->_weights->precision().size(),
+                            inputs->getPrecision().size(),
+                            outputs->getPrecision().size(),
+                            filterLayer->_weights->getTensorDesc().getPrecision().size(),
                             biasPrecision.size(),
                             quantized == nullptr ? 1 : quantized->_weights_quant.scale,
                             quantized == nullptr ? 1 : quantized->_dst_quant.scale,
@@ -1348,10 +1351,10 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     size_t num_data_bytes_out =
                 InferenceEngine::details::product(
-                                        begin(outputs->dims), end(outputs->dims)) * 4;
+                                        begin(outputs->getDims()), end(outputs->getDims())) * 4;
 
     size_t num_data_bytes_in = num_columns_in *
-                            ALIGN(num_rows_in, 8) * inputs->precision.size();
+                            ALIGN(num_rows_in, 8) * inputs->getPrecision().size();
 
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -1418,7 +1421,7 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     auto orientation = (num_cnn_rows_out > 0) ? kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
 
-    if (inputs->dims.size() == 4) {
+    if (inputs->getDims().size() == 4) {
         num_columns = FROM_IR_DIM(inputs, 3) * FROM_IR_DIM(inputs, 1);
         num_rows = 1;
     } else {
@@ -1426,11 +1429,11 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         num_rows = FROM_IR_DIM(inputs, 1);
     }
 
-    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->dims), end(outputs->dims))
-        * outputs->precision.size();
+    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
+        * outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = InferenceEngine::details::product(begin(inputs->dims), end(inputs->dims))
-        * inputs->precision.size();
+    size_t num_data_bytes_in = InferenceEngine::details::product(begin(inputs->getDims()), end(inputs->getDims()))
+        * inputs->getPrecision().size();
 
     static caseless_unordered_map<std::string, DnnActivationType> supportedActivations = {
         {"sigmoid", kActSigmoid},
@@ -1460,7 +1463,7 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     intel_pwl_segment_t *ptr_pwl_segments_target = nullptr;
 
-    if (!inputs->precision.is_float()) {
+    if (!inputs->getPrecision().is_float()) {
         // TODO: generalize activation function code
         // now that scale factors are known, create PWL approximations to activation functions
         float input_scale_factor = dnn.OutputScaleFactor(prevComponent);
@@ -1499,8 +1502,8 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
                                      orientation,
                                      num_rows,
                                      num_columns,
-                                     inputs->precision.size(),
-                                     outputs->precision.size(),
+                                     inputs->getPrecision().size(),
+                                     outputs->getPrecision().size(),
                                      ptr_pwl_segments.size(),
                                      output_scale_factor,
                                      ptr_inputs,
@@ -1632,6 +1635,7 @@ GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string 
 }
 
 bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage) {
+    IE_SUPPRESS_DEPRECATED_START
     CNNLayerSet inputLayers;
     InferenceEngine::InputsDataMap inputs;
     std::unordered_set<CNNLayer *> allLayers;
@@ -1684,7 +1688,7 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
                                                     check_result =  false;
                                                 }
                                             }, false);
-
+    IE_SUPPRESS_DEPRECATED_END
     return check_result;
 }
 
@@ -1821,7 +1825,6 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
             THROW_GNA_EXCEPTION << "cannot infer topologies with more than one output";
         }
     }
-    outputDims = outputsDataMap.begin()->second->dims;
 
     for (auto && input : inputsDataMap) {
         get_ptr_inputs_global(input.first).resize(gna_lib_async_threads_num);
@@ -2057,15 +2060,15 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
 
     int inputNum = 0;
     for (auto &input : inputs) {
-        auto inputLayout = input.second->layout();
+        auto inputLayout = input.second->getTensorDesc().getLayout();
         if (inputLayout != Layout::NC && inputLayout != Layout::CN && inputLayout != NCHW) {
             THROW_GNA_EXCEPTION << "Expected input blob to have Layout::NC or Layout::CN, but was: "
-                                << input.second->layout();
+                                << input.second->getTensorDesc().getLayout();
         }
         if (inputLayout == NCHW) {
             inputLayout = NC;
         }
-        auto is2D = input.second->layout() == Layout::NC || input.second->layout() == Layout::CN;
+        auto is2D = input.second->getTensorDesc().getLayout() == Layout::NC || input.second->getTensorDesc().getLayout() == Layout::CN;
 
         if (!ptr_inputs_global_id.count(input.first)) {
             // should not happen in user code however might happen if there any non executable network based integration of GNAPlugin instance
@@ -2088,17 +2091,17 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
             THROW_GNA_EXCEPTION << "network not loaded : output orientation not set";
         }
 
-        auto dims = input.second->dims();
+        auto dims = input.second->getTensorDesc().getDims();
 
         ImportFrames(get_ptr_inputs_global(input.first)[idx],
                      input.second->cbuffer().as<float *>(),
-                     input.second->precision(),
+                     input.second->getTensorDesc().getPrecision(),
                      sw_fp32 ? 1.0f : inputScaleFactors[inputNum],
                      orientation_in[input.first],
-                     dims[dims.size() - 1],
-                     is2D ? dims[1] : dims[dims.size() - 1],
-                     is2D ? dims[0] : dims[0] * dims[1] * dims[2],
-                     is2D ? dims[0] : dims[0] * dims[1] * dims[2]);
+                     dims[0],
+                     is2D ? dims[dims.size() - 2] : dims[0],
+                     is2D ? dims[dims.size() - 1] : dims[dims.size() - 1] * dims[dims.size() - 2] * dims[dims.size() - 3],
+                     is2D ? dims[dims.size() - 1] : dims[dims.size() - 1] * dims[dims.size() - 2] * dims[dims.size() - 3]);
 
         bool isOneChannel = input.second->getTensorDesc().getDims()[1] == 1;
         if (((inputLayout == Layout::NC || inputLayout == Layout::NCHW)
@@ -2107,8 +2110,8 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
             RotateFeatures(reinterpret_cast<uint8_t *>(get_ptr_inputs_global(input.first)[idx]),
                            gnadevice ? 2 : 4,
                            // TODO: only works for cnn4a and google command so far
-                           dims[dims.size() - 1],
-                           is2D ? dims[0] : dims[0] * dims[2],  // num_feature_vectors looks batch should be there
+                           dims[0],
+                           is2D ? dims[dims.size() - 1] : dims[dims.size() - 1] * dims[dims.size() - 3],  // num_feature_vectors looks batch should be there
                            num_rotate_rows,
                            num_rotate_columns);
         }
@@ -2148,7 +2151,7 @@ void GNAPlugin::Wait(uint32_t idx) {
     }
     auto & output = *result.begin()->second;
 
-    if (output.layout() == Layout::NC) {
+    if (output.getTensorDesc().getLayout() == Layout::NC) {
         // TODO: rotate can be incorporated with exporting - used only in unit tests so far
         // TODO: restore:
 //        if (orientation_out != kDnnInterleavedOrientation) {
@@ -2176,19 +2179,20 @@ void GNAPlugin::Wait(uint32_t idx) {
             }
         }
 
+        auto exportOutputDims = output.getTensorDesc().getDims();
         ExportScores(output.buffer(),
                      ptr_outputs_global[idx],
                      orientation_out,
-                     output.dims()[output.dims().size() - 1],
-                     output.dims()[1],
-                     output.dims()[0],
-                     output.dims()[0],
-                     output.dims()[0],
+                     exportOutputDims[0],
+                     exportOutputDims[exportOutputDims.size() - 2],
+                     exportOutputDims[exportOutputDims.size() - 1],
+                     exportOutputDims[exportOutputDims.size() - 1],
+                     exportOutputDims[exportOutputDims.size() - 1],
                      // TODO: create better getter consider multiple outputs case
                      gnadevice ? std::get<0>(nnets[idx])->obj.pLayers[output_layer_index].nBytesPerOutput : sizeof(float),
                      sizeof(float));
-    } else if (output.layout() != Layout::CN) {
-        THROW_GNA_EXCEPTION << "Expected output blob to have Layout::NC or Layout::CN. But was " << output.layout();
+    } else if (output.getTensorDesc().getLayout() != Layout::CN) {
+        THROW_GNA_EXCEPTION << "Expected output blob to have Layout::NC or Layout::CN. But was " << output.getTensorDesc().getLayout();
     }
 
     if (gnadevice) {
@@ -2211,8 +2215,8 @@ void GNAPlugin::Wait(uint32_t idx) {
 #endif
         ConvertToFloat(output.buffer(),
                        output.buffer(),
-                       output.dims()[0],
-                       output.dims()[1],
+                       output.getTensorDesc().getDims()[output.getTensorDesc().getDims().size() - 1],
+                       output.getTensorDesc().getDims()[output.getTensorDesc().getDims().size() - 2],
                        output_scale_factor);
 #ifdef PLOT
         if (f) {
@@ -2259,7 +2263,8 @@ void GNAPlugin::Infer(const InferenceEngine::BlobMap &input, InferenceEngine::Bl
 Blob::Ptr GNAPlugin::GetOutputBlob(InferenceEngine::Precision precision) {
     // need to have intermediate blob for interleave conversion
     InferenceEngine::Blob::Ptr outputBlob;
-    outputBlob = make_blob_with_precision(precision, NC, outputDims);
+    auto outputDims = outputsDataMap.begin()->second->getTensorDesc().getDims();
+    outputBlob = make_blob_with_precision(TensorDesc(precision, outputDims, NC));
     outputBlob->allocate();
     return outputBlob;
 }
@@ -2268,8 +2273,8 @@ Blob::Ptr GNAPlugin::GetInputBlob(std::string name, InferenceEngine::Precision p
     InferenceEngine::Blob::Ptr inputBlob;
     // need to have intermediate blob for interleave conversion
     // TODO: NCHW format support is experimental = c++ MO did insert reshape, while TF mo - not
-    auto inputDims = inputsDataMap[name]->getDims();
-    inputBlob = make_blob_with_precision(precision, inputDims.size() == 2 ? NC : NCHW, inputDims);
+    auto inputDims = inputsDataMap[name]->getTensorDesc().getDims();
+    inputBlob = make_blob_with_precision(TensorDesc(precision, inputDims, inputDims.size() == 2 ? NC : NCHW));
     inputBlob->allocate();
     return inputBlob;
 }
@@ -2328,19 +2333,20 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
 
     num_bytes_per_output = header.output.element_size;
 
-
-    outputDims = SizeVector({header.output.elements_count / header.nGroup, header.nGroup});
-    auto inputDims = SizeVector({header.input.elements_count / header.nGroup, header.nGroup});
+    auto outputDims = SizeVector({header.nGroup, header.output.elements_count / header.nGroup});
+    auto inputDims = SizeVector({header.nGroup, header.input.elements_count / header.nGroup});
 
     inputsDataMap["input"] = std::make_shared<InputInfo>();
     inputsDataMap["input"]->setInputData(make_shared<Data>("input",
-                                                           inputDims,
-                                                           Precision::FP32,
-                                                           Layout::NC));
+                                                           TensorDesc(
+                                                                   Precision::FP32,
+                                                                   inputDims,
+                                                                   Layout::NC)));
     outputsDataMap["output"] = make_shared<Data>("output",
-                                                 outputDims,
-                                                 Precision::FP32,
-                                                 Layout::NC);
+                                                 TensorDesc(
+                                                         Precision::FP32,
+                                                         outputDims,
+                                                         Layout::NC));
 
     output_scale_factor = header.output.scaleFactor;
     inputScaleFactors.push_back(header.input.scaleFactor);
@@ -2377,20 +2383,20 @@ void GNAPlugin::Export(const std::string &fileName) {
     std::fstream outStream(fileName, ios_base::out | ios_base::binary);
 
     // TODO: nnet group parameter looks only used in application - so can we move this line into load network.
-    auto inputDims = inputsDataMap.begin()->second->getDims();
+    auto inputDims = inputsDataMap.begin()->second->getTensorDesc().getDims();
     if (inputDims.size() == 2) {
-        std::get<0>(nnets.front())->obj.nGroup = inputDims[1];
+        std::get<0>(nnets.front())->obj.nGroup = inputDims[0];
     }
 
     auto serial = GNAModelSerial(&std::get<0>(nnets.front())->obj,
                    {inputScaleFactors.front(),
                     ptr_inputs_global_storage.front()[0],
                     2,
-                    static_cast<uint32_t>(InferenceEngine::details::product(inputsDataMap.begin()->second->getDims()))},
+                    static_cast<uint32_t>(InferenceEngine::details::product(inputsDataMap.begin()->second->getTensorDesc().getDims()))},
                    {output_scale_factor,
                     ptr_outputs_global[0],
                     num_bytes_per_output,
-                    static_cast<uint32_t>(InferenceEngine::details::product(outputsDataMap.begin()->second->getDims()))})
+                    static_cast<uint32_t>(InferenceEngine::details::product(outputsDataMap.begin()->second->getTensorDesc().getDims()))})
         .SetInputRotation(dnn.num_rotate_rows, dnn.num_rotate_columns);
 
     for (auto && memoryConnection : memory_connection) {
@@ -2626,7 +2632,7 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
 intel_dnn_component_t * GNAPlugin::find_first_unused_input(InferenceEngine::CNNLayerPtr current) {
     if (current->insData.empty()) return nullptr;
 
-    auto prev_layer = current->insData.front().lock()->creatorLayer.lock();
+    auto prev_layer = current->insData.front().lock()->getCreatorLayer().lock();
 
     return findDnnLayer(prev_layer);
 }

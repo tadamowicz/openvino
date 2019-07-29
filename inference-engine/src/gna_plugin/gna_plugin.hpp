@@ -509,8 +509,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     intel_dnn_component_t * find_first_unused_input(InferenceEngine::CNNLayerPtr current);
     std::map<std::string, int> bytes_alllocated_for_input;
     InferenceEngine::InputsDataMap inputsDataMap;
-
-    InferenceEngine::SizeVector outputDims;
     InferenceEngine::OutputsDataMap outputsDataMap;
 };
 }  // namespace GNAPluginNS
