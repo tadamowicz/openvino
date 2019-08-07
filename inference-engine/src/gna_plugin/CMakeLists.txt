@@ -51,7 +51,7 @@ add_library(${TARGET_NAME}_test_static STATIC ${TEST_SOURCES} ${HEADERS})
 target_compile_definitions(${TARGET_NAME}_test_static
         PUBLIC -DINTEGER_LOW_P
                -DUSE_STATIC_IE)
-target_link_libraries(${TARGET_NAME}_test_static PUBLIC libGNA::API)
+target_link_libraries(${TARGET_NAME}_test_static PUBLIC inference_engine_preproc_s libGNA::API)
 target_include_directories(${TARGET_NAME}_test_static PUBLIC ${TARGET_INCLUDE_DIRS})
 
 set_target_properties(${TARGET_NAME}_test_static PROPERTIES COMPILE_PDB_NAME ${TARGET_NAME}_test_static)
