@@ -22,6 +22,7 @@
 #include <details/ie_cnn_network_tools.h>
 #include <ie_util_internal.hpp>
 #include <iomanip>
+#include <graph_transformer.h>
 
 #include "gna_pass_manager.hpp"
 #include "gna_layer_info.hpp"
@@ -917,6 +918,16 @@ void UnrollTIPass::run() {
     if (!sts) {
         THROW_GNA_EXCEPTION << "TensorIterator layer cannot be unrolled!";
     }
+}
+
+void RemoveConstPass::run() {
+    auto network = getPassManager()->getNetwork();
+    auto* implNetwork = dynamic_cast<details::CNNNetworkImpl*>(network.get());
+    if (!implNetwork) {
+        THROW_GNA_EXCEPTION << "Remove const layers pass can only work on cnnnetworkimpl type";
+    }
+    ConstTransformer transformer(implNetwork);
+    transformer.fullTrim();
 }
 
 void PassManager::run() {
