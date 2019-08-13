@@ -22,6 +22,7 @@
 #include <details/ie_cnn_network_tools.h>
 #include <ie_util_internal.hpp>
 #include <iomanip>
+#include <graph_transformer.h>
 
 #include "gna_pass_manager.hpp"
 #include "gna_layer_info.hpp"
@@ -216,26 +217,23 @@ void InsertDiagonalLayerPass::run() {
 }
 
 void HandleMultipleActivationsForTheLayerPass::run() {
-    // found layer followed by with multiple activations
+    // found layer followed by multiple activations
     for (auto & l : *pLayers) {
         std::set<CNNLayerPtr> activations;
-        std::set<CNNLayerPtr> identities;
 
         for (auto && odata : l->outData) {
             for (auto && inputTo : odata->getInputTo()) {
                 LayerInfo info(inputTo.second);
 
-                if (info.isIdentity()) {
-                    identities.insert(inputTo.second);
-                } else if (info.isActivation()) {
+                if (info.isActivation()) {
                     activations.insert(inputTo.second);
                 }
             }
         }
         // single or not activations case
-        if (activations.size() + identities.size() < 2) continue;
+        if (activations.size() < 2) continue;
 
-        // insert diagonals, but not for identity activations
+        // insert diagonals one per each activation
         for (auto && activation : activations) {
             insertDiagonalLayerBetween(l, activation, getPassManager(), 0.0f);
         }
@@ -920,6 +918,16 @@ void UnrollTIPass::run() {
     if (!sts) {
         THROW_GNA_EXCEPTION << "TensorIterator layer cannot be unrolled!";
     }
+}
+
+void RemoveConstPass::run() {
+    auto network = getPassManager()->getNetwork();
+    auto* implNetwork = dynamic_cast<details::CNNNetworkImpl*>(network.get());
+    if (!implNetwork) {
+        THROW_GNA_EXCEPTION << "Remove const layers pass can only work on cnnnetworkimpl type";
+    }
+    ConstTransformer transformer(implNetwork);
+    transformer.fullTrim();
 }
 
 void PassManager::run() {

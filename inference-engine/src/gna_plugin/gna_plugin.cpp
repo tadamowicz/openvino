@@ -475,12 +475,27 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
 
-    uint32_t num_feature_map_rows = FROM_IR_DIM(inputs, 1) / convolution._stride_x;
-    uint32_t num_feature_map_columns = FROM_IR_DIM(inputs, 3) * convolution._stride_x / num_feature_maps;
+    uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
+    uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
+    uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
+    uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
+    uint32_t w_dim_out = FROM_IR_DIM(outputs, 1);
+    uint32_t h_dim_out = FROM_IR_DIM(outputs, 2);
 
-    uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
-    uint32_t num_columns_in = FROM_IR_DIM(inputs, 3);
-    uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
+    if (w_dim_in == 1) {  // swap dimensions if needed to support swapped 1D case
+        swap(h_dim_in, w_dim_in);
+        swap(h_dim_out, w_dim_out);
+        swap(convolution._kernel_x, convolution._kernel_y);
+        swap(convolution._stride_x, convolution._stride_y);
+    }
+
+    uint32_t num_feature_map_rows = w_dim_in / convolution._stride_x;
+    uint32_t num_feature_map_columns = c_dim_in * convolution._stride_x / num_feature_maps;
+
+    uint32_t num_rows_in = w_dim_in;
+    uint32_t num_columns_in = c_dim_in;
+    uint32_t num_rows_out = w_dim_out;
+
     uint32_t num_padding = ALIGN(convolution._kernel_x * num_feature_map_columns * num_feature_maps, 8)
                                             - convolution._kernel_x * num_feature_map_columns * num_feature_maps;
     void *ptr_inputs;
@@ -681,10 +696,25 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
 
-    uint32_t num_rows_in = FROM_IR_DIM(inputs, 1);
-    uint32_t num_columns_in = FROM_IR_DIM(inputs, 3);
-    uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
-    uint32_t num_columns_out = FROM_IR_DIM(outputs, 3);
+    uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
+    uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
+    uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
+    uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
+    uint32_t w_dim_out = FROM_IR_DIM(outputs, 1);
+    uint32_t h_dim_out = FROM_IR_DIM(outputs, 2);
+    uint32_t c_dim_out = FROM_IR_DIM(outputs, 3);
+    uint32_t n_dim_out = FROM_IR_DIM(outputs, 4);
+
+    if (w_dim_in == 1) {  // swap dimensions if needed to support swapped 1D case
+        swap(h_dim_in, w_dim_in);
+        swap(h_dim_out, w_dim_out);
+        swap(pooling._kernel[X_AXIS], pooling._kernel[Y_AXIS]);
+    }
+
+    uint32_t num_rows_in = w_dim_in;
+    uint32_t num_columns_in = c_dim_in;
+    uint32_t num_rows_out = w_dim_out;
+    uint32_t num_columns_out = c_dim_out;
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
     void *ptr_inputs;
@@ -1422,7 +1452,12 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto orientation = (num_cnn_rows_out > 0) ? kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
 
     if (inputs->getDims().size() == 4) {
-        num_columns = FROM_IR_DIM(inputs, 3) * FROM_IR_DIM(inputs, 1);
+        uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
+        uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
+        uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
+        uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
+
+        num_columns = (w_dim_in == 1) ? h_dim_in * c_dim_in : w_dim_in * c_dim_in;
         num_rows = 1;
     } else {
         num_columns = FROM_IR_DIM(inputs, 2);
@@ -1644,9 +1679,12 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     network.getInputsInfo(inputs);
     auto network_input_precision = inputs.begin()->second->getPrecision();
     auto batch_size = network.getBatchSize();
-    if (network_precision != Precision::FP32 && network_precision != Precision::FP16) {
-        errMessage = "The plugin does not support networks with " + std::string(network_precision.name()) + " format. Supported network precisions are FP32, "
-                                                                                                            "FP16\n";
+
+    if (network_precision != Precision::FP32 &&
+        network_precision != Precision::FP16 &&
+        network_precision != Precision::MIXED) {
+        errMessage = "The plugin does not support networks with " +
+            std::string(network_precision.name()) + " format. Supported network precisions are FP32, FP16, MIXED\n";
         return false;
     }
     if (network_input_precision != Precision::FP32 &&
@@ -1702,6 +1740,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     // network optimisation phases
     auto run_passes = [&] (CNNNetPtr network) {
         auto passes = make_shared<PassManager>(policy, network);
+        passes->registerPass<RemoveConstPass>();
         passes->registerPass<UnrollTIPass>();
         passes->registerPass<UnrollLSTMCellPass>();
         passes->registerPass<SubstitutePReluPass>();
@@ -1723,7 +1762,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     };
 
     Config supported = Config({
-        {TargetDevice::eGNA, {Precision::FP32, Precision::FP16}, [&](InferenceEngine::ICNNNetwork &network) -> CNNNetworkPtr {
+        {TargetDevice::eGNA, {Precision::FP32, Precision::FP16, Precision::MIXED}, [&](InferenceEngine::ICNNNetwork &network) -> CNNNetworkPtr {
             if (gnaPrecision == Precision::I16) {
                 ModelQuantizer<QuantI16> q;
                 return q.quantize(network, run_passes, inputScaleFactors);
@@ -1738,7 +1777,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         // TODO: need to have advanced precision matcher based on layers/biases
         {TargetDevice::eGNA, {Precision::MIXED}},
         {TargetDevice::eGNA, {Precision::I16}},
-        {TargetDevice::eCPU, {Precision::FP32}
+        {TargetDevice::eCPU, {Precision::FP32, Precision::MIXED}
 #define EMULATE_GNA_API_LAYERS
 #ifdef  EMULATE_GNA_API_LAYERS
             , [&](InferenceEngine::ICNNNetwork & network) {
@@ -2218,17 +2257,6 @@ void GNAPlugin::Wait(uint32_t idx) {
                        output.getTensorDesc().getDims()[output.getTensorDesc().getDims().size() - 1],
                        output.getTensorDesc().getDims()[output.getTensorDesc().getDims().size() - 2],
                        output_scale_factor);
-#ifdef PLOT
-        if (f) {
-            for (int i = 0; i < output.dims()[1]; i++) {
-                for (int j = 0; j < output.dims()[0]; j++) {
-                    fprintf(f, "%.2f ", output.cbuffer().as<float *>()[output.dims()[0] * i + j]);
-                }
-                fprintf(f, "\n");
-            }
-            fclose(f);
-        }
-#endif
     }
 }
 
@@ -2264,7 +2292,7 @@ Blob::Ptr GNAPlugin::GetOutputBlob(InferenceEngine::Precision precision) {
     // need to have intermediate blob for interleave conversion
     InferenceEngine::Blob::Ptr outputBlob;
     auto outputDims = outputsDataMap.begin()->second->getTensorDesc().getDims();
-    outputBlob = make_blob_with_precision(TensorDesc(precision, outputDims, NC));
+    outputBlob = make_blob_with_precision(TensorDesc(precision, outputDims, outputDims.size() == 2 ? NC : NCHW));
     outputBlob->allocate();
     return outputBlob;
 }
