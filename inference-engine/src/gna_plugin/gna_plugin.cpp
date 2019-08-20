@@ -1072,6 +1072,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
     uint32_t num_rows_out = isDiag ? num_rows_in : FROM_IR_DIM(outputs, 1);
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
+    uint32_t num_padding_out = isDiag ? num_padding : 0;
 
     void *ptr_inputs;
     void *ptr_outputs;
@@ -1104,7 +1105,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
                             num_columns_in,
-                            num_rows_out,
+                            num_rows_out + num_padding_out,
                             inputPrecision.size(),
                             outputs->getPrecision().size(),
                             weightable._weights->getTensorDesc().getPrecision().size(),
@@ -1117,8 +1118,8 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
                             ptr_biases,
                             isDiag);
 
-    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
-        * outputs->getPrecision().size();
+    size_t num_data_bytes_out =
+        num_columns_in * (num_rows_out + num_padding_out) * outputs->getPrecision().size();
 
     size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->getPrecision().size();
 
@@ -1182,7 +1183,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
         }
     } else {
         if (transpose) {
-            THROW_GNA_EXCEPTION << "transpozed weights with non zero padding not yet supported";
+            THROW_GNA_EXCEPTION << "transposed weights with non zero padding not yet supported";
         }
         auto elementsIn = (num_rows_in + num_padding) * num_columns_in;
         auto paddedWeights = isDiag ? elementsIn : elementsIn * num_rows_out;
@@ -1200,15 +1201,15 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
 
     if (weightable._biases) {
         gnamem->readonly().push_ptr(ptr_biases,
-                         weightable._biases->cbuffer().as<const void *>(),
-                         weightable._biases->byteSize(),
-                         64);
+            weightable._biases->cbuffer().as<const void *>(),
+            weightable._biases->byteSize(),
+            64);
     } else {
         // in that case input from previous layer goes into biases, so we have to initialize input pointer by zero
         if (useBiasConnection) {
-            gnamem->readonly().push_value(ptr_inputs, 0.0f, num_rows_in, 64);
+            gnamem->readonly().push_value(ptr_inputs, 0.0f, num_rows_in + num_padding, 64);
         } else {
-            gnamem->readonly().push_value(ptr_biases, 0.0f, num_rows_out, 64);
+            gnamem->readonly().push_value(ptr_biases, 0.0f, num_rows_out + num_padding_out, 64);
         }
     }
 }
@@ -1757,7 +1758,6 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         passes->registerPass<InsertDiagonalLayerPass>();
         passes->registerPass<HandleMultipleActivationsForTheLayerPass>();
         passes->registerPass<SubstituteScaleShiftBroadCastPass>();
-
         passes->run();
     };
 
