@@ -2243,9 +2243,10 @@ void GNAPlugin::Wait(uint32_t idx) {
         }
         num_infers++;
         if (f) {
-            for (int i = 0; i < output.dims()[1]; i++) {
-                for (int j = 0; j < output.dims()[0]; j++) {
-                    fprintf(f, "%d ", output.cbuffer().as<int32_t *>()[output.dims()[0] * i + j]);
+            auto dims = output.getTensorDesc().getDims();
+            for (int i = 0; i < dims[dims.size() - 2]; i++) {
+                for (int j = 0; j < dims[dims.size() - 1]; j++) {
+                    fprintf(f, "%d ", output.cbuffer().as<int32_t *>()[dims[dims.size() - 1] * i + j]);
                 }
                 fprintf(f, "\n");
             }
@@ -2257,6 +2258,18 @@ void GNAPlugin::Wait(uint32_t idx) {
                        output.getTensorDesc().getDims()[output.getTensorDesc().getDims().size() - 1],
                        output.getTensorDesc().getDims()[output.getTensorDesc().getDims().size() - 2],
                        output_scale_factor);
+#ifdef PLOT
+        if (f) {
+            auto dims = output.getTensorDesc().getDims();
+            for (int i = 0; i < dims[dims.size() - 2]; i++) {
+                for (int j = 0; j < dims[dims.size() - 1]; j++) {
+                    fprintf(f, "%.2f ", output.cbuffer().as<float *>()[dims[dims.size() - 1] * i + j]);
+                }
+                fprintf(f, "\n");
+            }
+            fclose(f);
+        }
+#endif
     }
 }
 
