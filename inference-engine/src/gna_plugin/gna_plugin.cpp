@@ -74,7 +74,7 @@ using namespace InferenceEngine::details;
 #define PAGE_SIZE_BYTES 4096
 
 #define FROM_IR_DIM(mem, idx)\
-((mem->getTensorDesc().getDims().size() > idx - 1) ? mem->getTensorDesc().getDims()[mem->getTensorDesc().getDims().size() - idx] : 1)
+((mem->getTensorDesc().getDims().size() > (idx) - 1) ? mem->getTensorDesc().getDims()[mem->getTensorDesc().getDims().size() - (idx)] : 1)
 
 inline int16_t GNAPluginNS::ConvertFloatToInt16(float src) {
         float rounding_value = (src > 0) ? 0.5f : -0.5f;
@@ -901,10 +901,10 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         }
 
         // TODO: add unit tests for 4d crops blobs
-        uint32_t num_rows_in = FROM_IR_DIM(inputs, cropLayer->axis[0]);
+        uint32_t num_rows_in = FROM_IR_DIM(inputs, inputs->getDims().size() - cropLayer->axis[0]);
         uint32_t num_columns_in = 1;
 
-        uint32_t num_rows_out = FROM_IR_DIM(outputs, cropLayer->axis[0]);
+        uint32_t num_rows_out = FROM_IR_DIM(outputs, inputs->getDims().size() - cropLayer->axis[0]);
         uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
         void *ptr_inputs;
