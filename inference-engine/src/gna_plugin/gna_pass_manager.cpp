@@ -664,8 +664,8 @@ void ReorderConcatInputsPass::run() {
             THROW_GNA_EXCEPTION << "no concat layer after concat-aligning layer" << l->name << ", but was: " << concat->type;
         }
         // 3stage locate first input in concat
-        if (concat->insData.size() != 2) {
-            THROW_GNA_EXCEPTION << "unsupported concat layer: " << concat->name;
+        if (concat->insData.size() < 2) {
+            THROW_GNA_EXCEPTION << "Concat layer has unsupported number of incoming layers: " << concat->name;
         }
         auto inputsToConcatFirst = CNNNetGetPrevLayersSkip(concat, [](CNNLayerPtr origin){
             return !LayerInfo(origin).isReshape();

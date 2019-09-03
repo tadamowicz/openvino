@@ -811,17 +811,25 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
     if (concatLayer == nullptr) {
         return;
     }
-    if (concatLayer->insData.size() != 2) {
+    if (concatLayer->insData.size() < 2) {
         THROW_GNA_EXCEPTION << "Concat layer has unsupported number of incoming layers.";
     }
 
-    auto prevInput0 = concatLayer->insData[0].lock();
-    auto prevInput1 = concatLayer->insData[1].lock();
-    if (!prevInput0 || !prevInput1) {
-        THROW_GNA_EXCEPTION << "Input layer for concat is unexpectedly absent";
+    for (std::size_t layerIndex = 0; layerIndex < concatLayer->insData.size(); layerIndex++) {
+        auto input = concatLayer->insData[layerIndex].lock();
+        if (!input) {
+            THROW_GNA_EXCEPTION << "Input layer " << layerIndex << " for concat is unexpectedly absent";
+        }
     }
-    if (prevInput0->getPrecision().size() != prevInput1->getPrecision().size()) {
-        THROW_GNA_EXCEPTION << "Different precision for Concat input layers are not supported";
+
+    std::size_t layerPrecisionSize = concatLayer->insData[0].lock()->getPrecision().size();
+    for (std::size_t layerIndex = 0; layerIndex < concatLayer->insData.size(); layerIndex++) {
+        auto currentSize = concatLayer->insData[layerIndex].lock()->getPrecision().size();
+        if (layerPrecisionSize != currentSize) {
+            THROW_GNA_EXCEPTION << "Different precision for Concat Layer '" << concatLayer->name << "' input layers." <<
+                "input 0 precision is '" << concatLayer->insData[0].lock()->getPrecision().name() << "' but input " << layerIndex <<
+                " precision is '" << concatLayer->insData[layerIndex].lock()->getPrecision().name() << "'";
+        }
     }
 
     auto& concatLayerInfo = concat_connection.find(concatLayer->name)->second;
@@ -1797,6 +1805,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     supported.setDefaultDevice(sw_fp32 ?  TargetDevice::eCPU : TargetDevice::eGNA);
 
     auto newNet = supported.find_configuration(network).convert(network);
+    auto inputLayers = CNNNetGetAllInputLayers(*newNet);
 
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
     std::vector<CNNLayerPtr> sortedNoMem;
@@ -1875,6 +1884,12 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     num_feature_maps = 1;
     for (auto layer = sortedNoMem.begin(); layer != sortedNoMem.end(); ++layer) {
         CreateLayerPrimitive(*layer);
+    }
+    for (auto& inputLayer : inputLayers) {
+        auto layerInfo = LayerInfo(inputLayer);
+        if (layerInfo.isInput() && 0 == bytes_alllocated_for_input[inputLayer->name]) {
+            connectOutput(inputLayer, &get_ptr_inputs_global(inputLayer->name).front(), 0);
+        }
     }
     if (dnnComponentsForLayer.empty()) {
         THROW_GNA_EXCEPTION << "No outputs found in dnn components structure";
