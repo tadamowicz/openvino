@@ -287,7 +287,19 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
         }
 
         if (!sourceQuantParams) {
-            THROW_GNA_EXCEPTION << "Concat quantization for this case need to be implemented!!! \n";
+            auto in0LayerInfo = LayerInfo(in0);
+            auto in1LayerInfo = LayerInfo(in1);
+            if (in0LayerInfo.isActivation()) {
+                quantParams0->_weights_quant = quantParams1->_dst_quant;
+                quantParams0->_dst_quant = quantParams1->_dst_quant;
+                sourceQuantParams = quantParams1;
+            } else if (in1LayerInfo.isActivation()) {
+                quantParams1->_weights_quant = quantParams0->_dst_quant;
+                quantParams1->_dst_quant = quantParams0->_dst_quant;
+                sourceQuantParams = quantParams0;
+            } else {
+                THROW_GNA_EXCEPTION << "Concat quantization for this case need to be implemented!!! \n";
+            }
         }
 
         if (!fp32eq(quantParams0->_dst_quant.scale, quantParams1->_dst_quant.scale) && concatIdxToUpdate == -1) {
