@@ -496,7 +496,8 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_columns_in = c_dim_in;
     uint32_t num_rows_out = w_dim_out;
 
-    uint32_t num_padding = ALIGN(convolution._kernel_x * num_feature_map_columns * num_feature_maps, 8)
+    // padding of convolution kernel to be multiply of 8
+    uint32_t num_conv_kernel_padding = ALIGN(convolution._kernel_x * num_feature_map_columns * num_feature_maps, 8)
                                             - convolution._kernel_x * num_feature_map_columns * num_feature_maps;
     void *ptr_inputs;
     void *ptr_outputs;
@@ -512,12 +513,13 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
 #ifdef PLOT
     std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " convolution_" << dnnComponentsForLayer.size() - 1 << std::endl;
 #endif
-    auto num_input_padding = ALIGN(num_feature_maps * num_feature_map_columns * num_feature_map_rows, 8)
-                                                        -  num_feature_maps * num_feature_map_columns * num_feature_map_rows;
+    // have to pad input to let last kernel meets it's corresponding input
+    auto num_inputs = num_feature_maps * num_feature_map_columns * num_feature_map_rows + num_conv_kernel_padding;
+    auto num_input_padding = ALIGN(num_inputs, 8)-  num_inputs;
     auto num_filter_rows = convolution._kernel_x / convolution._stride_x;
     dnn.InitConvolutional1DComponent(currentComponent,
                             1,
-                            num_feature_maps *  num_feature_map_columns * num_feature_map_rows + num_input_padding,
+                            num_inputs + num_input_padding,
                             1,
                             num_rows_out * convolution._out_depth,
                             inputs->getTensorDesc().getPrecision().size(),
@@ -526,7 +528,7 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             biasPrecision.size(),
                             convolution._out_depth,
                             num_filter_rows,
-                            num_feature_maps * num_feature_map_columns * num_filter_rows + num_padding,
+                            num_feature_maps * num_feature_map_columns * num_filter_rows + num_conv_kernel_padding,
 
                             num_feature_maps,  // interesting - why this is so in gna_example
                             num_feature_map_rows,
@@ -546,7 +548,7 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
                         InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
                                                                                 * outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs->getPrecision().size();
+    size_t num_data_bytes_in = (num_inputs + num_input_padding) * inputs->getPrecision().size();
 
     auto connectedInputLayer = connectInput(layer, ptr_inputs, num_data_bytes_in).input;
 
@@ -581,10 +583,10 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
         transposedWeights.insert(transposedWeights.end(), transposedPart.begin(), transposedPart.end());
     }
 
-    if (num_padding == 0) {
+    if (num_conv_kernel_padding == 0) {
         gnamem->readonly().push_local_ptr(ptr_weights, transposedWeights.data(), convolution._weights->byteSize(), 64);
     } else {
-        auto elementsIn = convolution._kernel_x * num_feature_map_columns + num_padding;
+        auto elementsIn = convolution._kernel_x * num_feature_map_columns + num_conv_kernel_padding;
         auto paddedWeights = elementsIn * convolution._out_depth;
         auto paddedWeightsSize = paddedWeights * convolution.precision.size();
         auto elements_in_row = convolution._kernel_x * num_feature_map_columns;
