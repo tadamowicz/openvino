@@ -137,6 +137,9 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void LoadNetwork(InferenceEngine::IExecutableNetwork::Ptr &executableNetwork,
                      InferenceEngine::ICNNNetwork &network,
                      const std::map<std::string, std::string> &config) override { THROW_GNA_EXCEPTION << "Not implemented"; }
+    ExecutableNetwork LoadNetwork(ICNNNetwork &network,
+                                  const std::map<std::string, std::string> &config,
+                                  RemoteContext::Ptr context) override { THROW_GNA_EXCEPTION << "Not implemented"; }
     void Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob &result);
     void SetLogCallback(InferenceEngine::IErrorListener &listener) override {};
     void SetCore(InferenceEngine::ICore*) noexcept override {}
@@ -152,7 +155,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                                          const std::map<std::string, InferenceEngine::Parameter> & options) const override;
     InferenceEngine::Parameter GetMetric(const std::string& name,
                                          const std::map<std::string, InferenceEngine::Parameter> & options) const override;
-
+    RemoteContext::Ptr CreateContext(const ParamMap& params) override { THROW_GNA_EXCEPTION << "Not implemented"; }
+    RemoteContext::Ptr GetDefaultContext() override { THROW_GNA_EXCEPTION << "Not implemented"; }
     /**
      *
      * @param sync - points to gna sync point
