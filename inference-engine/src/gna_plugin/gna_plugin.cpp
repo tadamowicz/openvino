@@ -42,7 +42,7 @@
 #include "util.h"
 #include "quantization/quantization.h"
 #include "lstm.hpp"
-#include "graph_tools.hpp"
+#include "gna_graph_tools.hpp"
 #include "gna_plugin_config.hpp"
 #include "gna/gna_config.hpp"
 #include "quantization/model_quantizer.hpp"

@@ -10,7 +10,7 @@
 #include "quantized_layer_params.hpp"
 #include "quantization.h"
 #include "details/caseless.hpp"
-#include "graph_tools.hpp"
+#include "gna_graph_tools.hpp"
 #include "blob_factory.hpp"
 #include "precision_ex.hpp"
 #include "pwl.h"
