@@ -12,9 +12,10 @@
 #include <unordered_set>
 #include <set>
 #include <fstream>
+#include <limits>
 
 #include <quantization/quantized_layer_params.hpp>
-#include <graph_tools.hpp>
+#include <gna_graph_tools.hpp>
 #include <gna-api.h>
 #include <blob_factory.hpp>
 #include <ie_memcpy.h>

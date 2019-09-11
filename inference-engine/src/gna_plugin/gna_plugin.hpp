@@ -21,7 +21,7 @@
 #include <cpp_interfaces/interface/ie_iplugin_internal.hpp>
 #include <cpp_interfaces/impl/ie_plugin_internal.hpp>
 #include <cpp_interfaces/impl/ie_executable_network_thread_safe_default.hpp>
-#include <graph_tools.hpp>
+#include <gna_graph_tools.hpp>
 #include "gna_allocator.hpp"
 #include "gna_api_wrapper.hpp"
 #include "gna_plugin_policy.hpp"

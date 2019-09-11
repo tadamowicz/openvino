@@ -8,7 +8,7 @@
 #include <string>
 #include "gna_plugin_config.hpp"
 #include "layer_transform.hpp"
-#include "graph_tools.hpp"
+#include "gna_graph_tools.hpp"
 #include "details/ie_cnn_network_tools.h"
 #include "layer_quantizer.hpp"
 #include "scale_factor_calc.hpp"
