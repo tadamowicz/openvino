@@ -897,7 +897,6 @@ void SubstituteScaleShiftBroadCastPass::run() {
 }
 
 void UnrollLSTMCellPass::run() {
-    // TODO: iefode: refactor this code
     InferenceEngine::NetPass::UnrollRNN_if(*getPassManager()->getNetwork(), [] (const RNNCellBase& rnn) -> bool {
         if (rnn.clip != 0.0f)
             return true;
