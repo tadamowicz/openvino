@@ -134,11 +134,11 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     std::string GetName() const noexcept override;
     void SetName(const std::string & pluginName) noexcept override;
 
-    void LoadNetwork(InferenceEngine::ICNNNetwork &network) override;
-    using InferenceEngine::IInferencePluginInternal::Infer;
+    void LoadNetwork(InferenceEngine::ICNNNetwork &network);
+    // using InferenceEngine::IInferencePluginInternal::Infer;
 
-    void Infer(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result) override;
-    void GetPerformanceCounts(std::map<std::string, InferenceEngine::InferenceEngineProfileInfo> &perfMap) override;
+    void Infer(const InferenceEngine::BlobMap &input, InferenceEngine::BlobMap &result);
+    void GetPerformanceCounts(std::map<std::string, InferenceEngine::InferenceEngineProfileInfo> &perfMap);
     void AddExtension(InferenceEngine::IExtensionPtr extension) override;
 
     std::vector<std::string> supportedConfigKeys()const;
@@ -148,16 +148,11 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void LoadNetwork(InferenceEngine::IExecutableNetwork::Ptr &executableNetwork,
                      InferenceEngine::ICNNNetwork &network,
                      const std::map<std::string, std::string> &config) override { THROW_GNA_EXCEPTION << "Not implemented"; }
-    void Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob &result) override;
+    void Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob &result);
     void SetLogCallback(InferenceEngine::IErrorListener &listener) override {};
     void SetCore(InferenceEngine::ICore*) noexcept override {}
     const InferenceEngine::ICore* GetCore() const noexcept override {return nullptr;}
     void Reset();
-    /**
-     * @deprecated Use the version with config parameter
-     */
-    void QueryNetwork(const InferenceEngine::ICNNNetwork &network,
-                      InferenceEngine::QueryNetworkResult &res) const override;
     void QueryNetwork(const InferenceEngine::ICNNNetwork &network,
                       const std::map<std::string, std::string>& config,
                       InferenceEngine::QueryNetworkResult &res) const override;

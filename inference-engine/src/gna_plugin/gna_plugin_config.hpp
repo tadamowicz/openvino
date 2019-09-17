@@ -9,6 +9,7 @@
 #include <ie_icnn_network.hpp>
 #include "ie_common.h"
 #include "gna_plugin_log.hpp"
+#include "ie_device.hpp"
 
 namespace GNAPluginNS {
 
@@ -47,7 +48,7 @@ class Config {
 
     inline Endpoint find_configuration(InferenceEngine::ICNNNetwork &network) {
         IE_SUPPRESS_DEPRECATED_START
-        auto device = network.getTargetDevice();
+        auto device = InferenceEngine::TargetDevice::eDefault;
         auto targetDevice = device == InferenceEngine::TargetDevice::eDefault ? _defaultDevice : device;
         auto res = std::find_if(std::begin(supported), std::end(supported), [&](Endpoint &e) {
             auto& netPrec(e.networkPrec);
@@ -60,7 +61,7 @@ class Config {
 
         if (res == std::end(supported)) {
             THROW_GNA_EXCEPTION << "\"The plugin doesn't support target device: "
-                               << InferenceEngine::TargetDeviceInfo::name(network.getTargetDevice())
+                               << InferenceEngine::TargetDeviceInfo::name(device)
                                << ".\nSupported target device: " << InferenceEngine::TargetDeviceInfo::name(InferenceEngine::TargetDevice::eGNA);
         }
         IE_SUPPRESS_DEPRECATED_END

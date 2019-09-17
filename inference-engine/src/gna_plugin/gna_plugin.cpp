@@ -1685,7 +1685,6 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     CNNLayerSet inputLayers;
     InferenceEngine::InputsDataMap inputs;
     std::unordered_set<CNNLayer *> allLayers;
-    auto specifiedDevice = network.getTargetDevice();
     auto network_precision = network.getPrecision();
     network.getInputsInfo(inputs);
     auto network_input_precision = inputs.begin()->second->getPrecision();
@@ -1703,12 +1702,6 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
         network_input_precision != Precision::U8) {
         errMessage = "The plugin does not support input precision with " + std::string(network_input_precision.name()) + " format. Supported  input precisions "
                      "FP32, I16, U8\n";
-        return false;
-    }
-    if (specifiedDevice != InferenceEngine::TargetDevice::eCPU &&
-        specifiedDevice != InferenceEngine::TargetDevice::eGNA &&
-        specifiedDevice != InferenceEngine::TargetDevice::eDefault) {
-        errMessage = "The plugin does not support target device: " + std::string(getDeviceName(specifiedDevice)) + ".\n";
         return false;
     }
 
@@ -2649,14 +2642,6 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
     }
 }
 
-/**
- * @deprecated Use the version with config parameter
- */
-void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
-                             InferenceEngine::QueryNetworkResult& res) const {
-    QueryNetwork(network, {}, res);
-}
-
 void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                              const std::map<std::string, std::string>& config,
                              InferenceEngine::QueryNetworkResult& res) const {
@@ -2680,9 +2665,6 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                                            [&](CNNLayerPtr const layer) {
                                                 if (GNAPluginNS::GNAPlugin::LayerTypeFromStr(layer->type) != NO_TYPE) {
                                                     res.supportedLayersMap.insert({ layer->name, GetName() });
-                                                    IE_SUPPRESS_DEPRECATED_START
-                                                    res.supportedLayers.insert(layer->name);
-                                                    IE_SUPPRESS_DEPRECATED_END
                                                 }
                                             }, false);
     }

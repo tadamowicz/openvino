@@ -39,15 +39,6 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
         return network;
     }
 
-    /**
-     * @deprecated Use the version with config parameter
-     */
-    void QueryNetwork(const InferenceEngine::ICNNNetwork& network,
-                      InferenceEngine::QueryNetworkResult& res) const override {
-        auto plg = std::make_shared<GNAPlugin>();
-        plg->QueryNetwork(network, {}, res);
-    }
-
     void QueryNetwork(const InferenceEngine::ICNNNetwork& network,
                       const std::map<std::string, std::string>& config,
                       InferenceEngine::QueryNetworkResult& res) const override {
