@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <gna-api-types-xnn.h>
+#include <gna_plugin_log.hpp>
 #include "ie_layers.h"
 #include "quantized_layer_params.hpp"
 #include "quantization.h"

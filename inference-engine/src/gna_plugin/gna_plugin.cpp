@@ -43,7 +43,6 @@
 #include "quantization/quantization.h"
 #include "lstm.hpp"
 #include "gna_graph_tools.hpp"
-#include "gna_plugin_config.hpp"
 #include "gna/gna_config.hpp"
 #include "quantization/model_quantizer.hpp"
 #include "gna_model_serial.hpp"
@@ -1764,42 +1763,30 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         passes->run();
     };
 
-    Config supported = Config({
-        {TargetDevice::eGNA, {Precision::FP32, Precision::FP16, Precision::MIXED}, [&](InferenceEngine::ICNNNetwork &network) -> CNNNetworkPtr {
-            if (gnaPrecision == Precision::I16) {
-                ModelQuantizer<QuantI16> q;
-                return q.quantize(network, run_passes, inputScaleFactors);
-            }
-
-            if (gnaPrecision == Precision::I8) {
-                ModelQuantizer<QuantI8> q;
-                return q.quantize(network, run_passes, inputScaleFactors);
-            }
-            THROW_GNA_EXCEPTION << "no mans land for GNA precision";
-        }},
-        // TODO: need to have advanced precision matcher based on layers/biases
-        {TargetDevice::eGNA, {Precision::MIXED}},
-        {TargetDevice::eGNA, {Precision::I16}},
-        {TargetDevice::eCPU, {Precision::FP32, Precision::MIXED}
-#define EMULATE_GNA_API_LAYERS
-#ifdef  EMULATE_GNA_API_LAYERS
-            , [&](InferenceEngine::ICNNNetwork & network) {
-            auto visitor = [&](InferenceEngine::CNNLayerPtr lp) {
-                transformLayer(lp, WeightsConverter());
-                return lp;
-            };
-            auto copiedNet = InferenceEngine::CNNNetCopy(network, visitor);
-            run_passes(copiedNet);
-
-            return copiedNet;
+    ICNNNetwork::Ptr newNet;
+    if (sw_fp32) {
+        auto visitor = [&](InferenceEngine::CNNLayerPtr lp) {
+            transformLayer(lp, WeightsConverter());
+            return lp;
+        };
+        newNet = InferenceEngine::CNNNetCopy(network, visitor);
+        run_passes(newNet);
+    } else {
+        switch (gnaPrecision) {
+            case Precision::I16:
+                ModelQuantizer<QuantI16> q16;
+                newNet = q16.quantize(network, run_passes, inputScaleFactors);
+                break;
+            case Precision::I8:
+                ModelQuantizer<QuantI8> q8;
+                newNet = q8.quantize(network, run_passes, inputScaleFactors);
+                break;
+            default:
+                THROW_GNA_EXCEPTION << "no mans land for GNA precision";
+                break;
         }
-#endif
     }
-    });
 
-    supported.setDefaultDevice(sw_fp32 ?  TargetDevice::eCPU : TargetDevice::eGNA);
-
-    auto newNet = supported.find_configuration(network).convert(network);
     auto inputLayers = CNNNetGetAllInputLayers(*newNet);
 
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
