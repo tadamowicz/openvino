@@ -54,8 +54,8 @@ GNADeviceHelper::DumpResult GNADeviceHelper::dumpXnn(const intel_nnet_type_t *pN
                              nActiveIndices,
                              &r.header,
                              &nGNAStatus,
-                             [](size_t count)-> void* {return ::operator new(count);}),
-                             [](void * ptr) {::operator delete(ptr);});
+                             [](size_t count)-> void* {return new char[count]();}),
+                             [](void * ptr) {::operator delete[](ptr);});
 
     checkStatus();
 

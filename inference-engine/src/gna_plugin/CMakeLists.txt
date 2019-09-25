@@ -14,8 +14,8 @@ file(GLOB_RECURSE HEADERS
 find_package(libGNA)
 
 set(TARGET_INCLUDE_DIRS
-        ${CMAKE_SOURCE_DIR}/src/inference_engine
-        ${CMAKE_SOURCE_DIR}/include
+        ${IE_MAIN_SOURCE_DIR}/src/inference_engine
+        ${IE_MAIN_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_definitions(-D_NO_MKL_)
