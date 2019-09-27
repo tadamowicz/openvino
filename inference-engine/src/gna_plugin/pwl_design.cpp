@@ -166,16 +166,26 @@ double calculate_error_pct(const DnnActivationType fun,
     }
 
     switch (fun) {
-        case kActSigmoid:  min_val = max_val = sigmoid(l_bound); break;
-        case kActTanh:     min_val = max_val = tanh(l_bound); break;
+        case kActSigmoid:
+            min_val = max_val = sigmoid(l_bound); break;
+        case kActTanh:
+            min_val = max_val = tanh(l_bound); break;\
+        default:
+            break;
     }
 
     for (int i = 0; i < samples; i++) {
         double arg = l_bound + i * delta;
         double val = 0.0;
         switch (fun) {
-            case kActSigmoid:  val = sigmoid(arg); break;
-            case kActTanh:     val = tanh(arg); break;
+            case kActSigmoid:
+                val = sigmoid(arg);
+                break;
+            case kActTanh:
+                val = tanh(arg);
+                break;
+            default:
+                break;
         }
         if (val > max_val) max_val = val;
         if (val < min_val) min_val = val;
@@ -280,6 +290,8 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
                     if (u_bound == 0) negative = true;  // make left half convex
                     err = pivot_search(pwl, tanh, first_deriv_tanh, n_segments, l_bound, u_bound, threshold, negative);
                     break;
+                default:
+                    break;
             }
             err_pct = calculate_error_pct(fun, l_bound, u_bound, err, samples);
 
@@ -291,6 +303,8 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
                         break;
                     case kActTanh:
                         err = pivot_search(pwl, tanh, first_deriv_tanh, n_segments, l_bound, u_bound, threshold, negative);
+                        break;
+                    default:
                         break;
                 }
                 err_pct = calculate_error_pct(fun, l_bound, u_bound, err, samples);
@@ -308,7 +322,7 @@ pwl_gna_slope_scale_t gna_slope(const double slope,
                                 const double in_scale,
                                 const double out_scale) {
     pwl_gna_slope_scale_t s;
-    s.slope = slope* out_scale / in_scale;
+    s.slope = slope * out_scale / in_scale;
 
     for (s.slope_scale_index = 3; s.slope_scale_index > 0; --s.slope_scale_index) {
         s.slope_scale = static_cast<uint64_t>(1) << (8 * (1 + s.slope_scale_index));
@@ -456,15 +470,17 @@ void make_gna_pwl(const DnnActivation  fun,
                     << " " << gna_pwl[0].yBase / out_scale
                     << " " << 0
                     << "\n";
+
             gna_pwl[1].xBase = x_lower & XBASEMASK;  // zero out the 2 lsb
             gna_pwl[1].yBase = y_lower;
             s = gna_slope(1.0, in_scale, out_scale);
             gna_pwl[1].slope = FLOAT_TO_INT16(s.slope * s.slope_scale);
             gna_pwl[1].xBase = gna_pwl[1].xBase | s.slope_scale_index;
             gnalog() << gna_pwl[1].xBase / in_scale
-                    << " " << gna_pwl[1].yBase / out_scale
-                    << " " << 1.0
-                    << "\n";
+                     << " " << gna_pwl[1].yBase / out_scale
+                     << " " << 1.0
+                     << "\n";
+
             if (INT32_MAX > x_upper) {  // need a right segment
                 gna_pwl.push_back({
                     static_cast<int32_t>(x_upper & XBASEMASK),  // zero out the 2 lsb

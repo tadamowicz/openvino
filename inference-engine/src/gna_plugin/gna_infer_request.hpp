@@ -31,10 +31,14 @@ class GNAInferRequest : public InferenceEngine::AsyncInferRequestInternal {
         }
 
         // copy inputs blobs since we need to have them in separate address space to allow simultaneous infer requests
-        _outputs[_networkOutputs.rbegin()->first] = plg->GetOutputBlob(networkOutputs.begin()->second->getTensorDesc().getPrecision());
+        for (auto output : _networkOutputs) {
+            _outputs[output.first] =
+                plg->GetOutputBlob(output.first, output.second->getTensorDesc().getPrecision());
+        }
+
         for (auto input : _networkInputs) {
             _inputs[input.first] =
-                plg->GetInputBlob(input.first, networkInputs.begin()->second->getTensorDesc().getPrecision());
+                plg->GetInputBlob(input.first, input.second->getTensorDesc().getPrecision());
         }
     }
     /**

@@ -179,6 +179,7 @@ void AmIntelDnn::InitAffineComponentPrivate(intel_dnn_component_t &comp,
     comp.op.affine.num_bytes_per_bias = num_bytes_per_bias;
     comp.op.affine.weight_scale_factor = weight_scale_factor;
     comp.output_scale_factor = output_scale_factor;
+    comp.input_scale_factor = output_scale_factor / weight_scale_factor;
     if (!postInitMem) {
         comp.op.affine.ptr_weights = ptr_weights;
         comp.op.affine.ptr_biases = ptr_biases;
@@ -222,6 +223,7 @@ void AmIntelDnn::InitDiagonalComponent(uint32_t component_index,
     component[component_index].op.affine.num_bytes_per_bias = num_bytes_per_bias;
     component[component_index].op.affine.weight_scale_factor = weight_scale_factor;
     component[component_index].output_scale_factor = output_scale_factor;
+    component[component_index].input_scale_factor = output_scale_factor / weight_scale_factor;
     component[component_index].op.affine.ptr_weights = ptr_weights;
     component[component_index].op.affine.ptr_biases = ptr_biases;
 }
@@ -270,6 +272,7 @@ void AmIntelDnn::InitConvolutional1DComponentPrivate(intel_dnn_component_t &comp
     comp.op.conv1D.num_feature_map_columns = num_feature_map_columns;
     comp.op.conv1D.weight_scale_factor = weight_scale_factor;
     comp.output_scale_factor = output_scale_factor;
+    comp.input_scale_factor = output_scale_factor / weight_scale_factor;
 
     if (!postInitMem) {
         comp.op.conv1D.ptr_filters = ptr_filters;
@@ -314,7 +317,7 @@ void AmIntelDnn::InitMaxpoolComponentPrivate(intel_dnn_component_t &comp,
     comp.op.maxpool.num_inputs_stride = num_pool_stride;
     comp.op.maxpool.do_sum_not_max = do_sum_not_max;
     comp.output_scale_factor = output_scale_factor;
-
+    comp.input_scale_factor = output_scale_factor;
     if (!postInitMem) {
         comp.ptr_inputs = ptr_inputs;
         comp.ptr_outputs = ptr_outputs;
@@ -351,6 +354,7 @@ void AmIntelDnn::InitCopyComponentPrivate(intel_dnn_component_t &comp,
     comp.ptr_inputs = ptr_inputs;
     comp.ptr_outputs = ptr_outputs;
     comp.output_scale_factor = output_scale_factor;
+    comp.input_scale_factor = output_scale_factor;
     comp.op.copy.num_copy_rows = num_copy_rows;
     comp.op.copy.num_copy_columns = num_copy_columns;
 
@@ -372,6 +376,7 @@ void AmIntelDnn::InitPiecewiseLinearComponentPrivate(intel_dnn_component_t &comp
                                                      uint32_t num_bytes_per_output,
                                                      uint32_t num_segments,
                                                      float output_scale_factor,
+                                                     float input_scale_factor,
                                                      void *&ptr_inputs,
                                                      void *&ptr_outputs,
                                                      intel_pwl_segment_t *ptr_segments,
@@ -389,6 +394,7 @@ void AmIntelDnn::InitPiecewiseLinearComponentPrivate(intel_dnn_component_t &comp
     comp.op.pwl.func_id = function_id;
     comp.op.pwl.num_segments = num_segments;
     comp.output_scale_factor = output_scale_factor;
+    comp.input_scale_factor = input_scale_factor;
 
     if (!postInitMem) {
         comp.ptr_inputs = ptr_inputs;
@@ -437,6 +443,7 @@ void AmIntelDnn::InitRecurrentComponent(uint32_t component_index,
     component[component_index].op.recurrent.num_bytes_per_bias = num_bytes_per_bias;
     component[component_index].op.recurrent.weight_scale_factor = weight_scale_factor;
     component[component_index].output_scale_factor = output_scale_factor;
+    component[component_index].input_scale_factor = output_scale_factor / weight_scale_factor;
     component[component_index].op.recurrent.ptr_feedbacks = ptr_feedbacks;
     component[component_index].op.recurrent.ptr_weights = ptr_weights;
     component[component_index].op.recurrent.ptr_biases = ptr_biases;
@@ -458,6 +465,7 @@ void AmIntelDnn::InitInterleaveComponent(uint32_t component_index, uint32_t num_
     component[component_index].ptr_inputs = ptr_inputs;
     component[component_index].ptr_outputs = ptr_outputs;
     component[component_index].output_scale_factor = output_scale_factor;
+    component[component_index].input_scale_factor = output_scale_factor;
 }
 
 void AmIntelDnn::InitDeinterleaveComponent(uint32_t component_index, uint32_t num_rows, uint32_t num_columns,
@@ -476,6 +484,7 @@ void AmIntelDnn::InitDeinterleaveComponent(uint32_t component_index, uint32_t nu
     component[component_index].ptr_inputs = ptr_inputs;
     component[component_index].ptr_outputs = ptr_outputs;
     component[component_index].output_scale_factor = output_scale_factor;
+    component[component_index].input_scale_factor = output_scale_factor;
 }
 
 __inline void ApplyAffineTransform(intel_dnn_component_t *component, uint32_t *list, uint32_t listsize) {
@@ -2441,15 +2450,7 @@ void AmIntelDnn::WriteInputAndOutputText() {
                         << " maxD="<< std::fixed << std::setprecision(5) << std::right << std::setw(8) << maxD << std::endl;
         }
 
-        float input_scale_factor = component[i].output_scale_factor;
-        if (component[i].operation == kDnnAffineOp ||
-            component[i].operation == kDnnDiagonalOp) {
-            input_scale_factor /= component[i].op.affine.weight_scale_factor;
-        } else if (component[i].operation == kDnnConvolutional1dOp) {
-            input_scale_factor /= component[i].op.conv1D.weight_scale_factor;
-        } else if (component[i].operation == kDnnPiecewiselinearOp) {
-            input_scale_factor = 1.f;
-        }
+        float input_scale_factor = component[i].input_scale_factor;
 
         for (int k = 0; k < component[i].num_rows_in; k++) {
             for (int j = 0; j < component[i].num_columns_in; j++) {

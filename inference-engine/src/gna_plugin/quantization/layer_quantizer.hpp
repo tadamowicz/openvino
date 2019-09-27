@@ -150,14 +150,16 @@ inline void quantizeWeightsBiases(const QuantDesc & quantDesc,
                             << "cannot copy weights for layer :"<< wl->name << " of size" << intWeights->byteSize();
     }
 
+    int oIdx = wl->outData[0]->getDims().size() - 1;
+    int iIdx = wl->insData[0].lock().get()->getDims().size() - 1;
 
-    auto getBiasSizeForLayer = [](InferenceEngine::WeightableLayer *wl) {
+    auto getBiasSizeForLayer = [&oIdx](InferenceEngine::WeightableLayer *wl) {
         if (wl->_biases) {
             return wl->_biases->size();
         }
-        // calculating biases len using weight dims
+        // calculating biases len using outdata dims
         auto & dims = wl->outData.front()->getDims();
-        return dims[1];
+        return dims[oIdx];
     };
 
     using BiasesPrecision = typename QuantDesc::BiasesPrecision;
@@ -197,10 +199,10 @@ inline void quantizeWeightsBiases(const QuantDesc & quantDesc,
     if (wl->insData[0].lock().get()->getDims().size() < 2) {
         THROW_IE_EXCEPTION << "Unsupported input dims size for " << wl->name << ", should be > 1, but " << wl->insData[0].lock().get()->getDims().size();
     }
-    uint32_t num_rows = isDiagonal ? 1 : wl->outData[0]->getDims()[1];
-    uint32_t num_columns = wl->insData[0].lock().get()->getDims()[1];
+    uint32_t num_rows = isDiagonal ? 1 : wl->outData[0]->getDims()[oIdx];
+    uint32_t num_columns = wl->insData[0].lock().get()->getDims()[iIdx];
 
-    if (wl->type == "AffineFilter") {
+    if (LayerInfo(wl).isAffineFilter() || LayerInfo(wl).isConcatAlignFilter())  {
         // for affine filter layer insdata size not equal to actual coded in input layer
         num_columns = wl->_weights->size() / num_rows;
     }
@@ -253,12 +255,11 @@ inline void quantizeWeightsBiasesConv(const QuantDesc & quantDesc,
                             << "cannot copy weights for layer :"<< conv->name << " of size" << intWeights->byteSize();
     }
 
-
     auto getBiasSizeForLayer = [](InferenceEngine::WeightableLayer *wl) {
         if (wl->_biases) {
             return wl->_biases->size();
         }
-        // calculating biases len using weight dims
+        // calculating biases len using outdata dims
         auto & dims = wl->outData.front()->getDims();
         return dims[1];
     };

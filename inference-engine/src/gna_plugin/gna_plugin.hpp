@@ -53,16 +53,12 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     std::vector<std::tuple<dnn_ptr, int32_t, InferenceEngine::BlobMap>> nnets;
 
     std::unordered_map<std::string, intel_dnn_orientation_t> orientation_in;
-    intel_dnn_orientation_t orientation_out = kDnnUnknownOrientation;
 
     /// order of scale factors matches inputs order in original topology
     std::vector<float> inputScaleFactors;
 
-    double output_scale_factor = 1.0;
     uint32_t num_rotate_rows = 0;
     uint32_t num_rotate_columns = 0;
-
-
     uint32_t num_feature_maps = 1;
     uint32_t num_memory_bytes = 0;
 
@@ -71,13 +67,20 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
     std::vector<void *>& get_ptr_inputs_global(std::string name);
 
-    std::vector<void *> ptr_outputs_global;
-
     uint32_t *ptr_active_indices = NULL;
     uint32_t num_active_indices = 0;
     uint32_t num_group_in = 0;
-    uint32_t num_bytes_weight = 0;
-    uint32_t num_bytes_per_output = 0;
+
+    struct OutputDesc {
+        double   scale_factor = 1.0;
+        uint32_t num_bytes_per_element = 0;
+        uint32_t num_elements = 0;
+        std::vector<void *> ptrs;  // ptr per each infer request
+        intel_dnn_orientation_t orientation = kDnnUnknownOrientation;
+    };
+
+    // index matches iterating order of cnnnetwork outputs info
+    std::vector<OutputDesc> outputsDesc = {};
 
     bool use_dynamic_quantization = false;
     bool compact_mode = true;
@@ -92,7 +95,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     bool performance_counting = false;
 
     intel_dnn_number_type_t output_type = kDnnInt;
-    std::string utterance_name;
 
     // internal types
     enum LayerType {
@@ -184,7 +186,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      * utility to provide input and output blobs externally to be used by InferenceEngine request API clients
      */
     InferenceEngine::Blob::Ptr GetInputBlob(std::string name, InferenceEngine::Precision precision);
-    InferenceEngine::Blob::Ptr GetOutputBlob(InferenceEngine::Precision precision);
+    InferenceEngine::Blob::Ptr GetOutputBlob(std::string name, InferenceEngine::Precision precision);
     /**
      * helpers to provide inputs info on AOT network
      */
@@ -343,7 +345,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                 return *this;
             }
             std::string name = "";
-            size_t offset    = 0;
+            size_t offset    = 0;  // in number of elements of input layer
             size_t pure_size = 0;
         };
         SplitConnectedLayerInfo splitInputLayer;

@@ -6,7 +6,6 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <malloc.h>
 #include <memory.h>
 #include <xmmintrin.h>
 #include <iostream>
@@ -221,6 +220,7 @@ typedef struct {
     void *ptr_inputs;
     void *ptr_outputs;
     float output_scale_factor;
+    float input_scale_factor;
 } intel_dnn_component_t;
 
 typedef struct {
@@ -525,6 +525,7 @@ class AmIntelDnn {
                                       uint32_t num_bytes_per_output,
                                       uint32_t num_segments,
                                       float output_scale_factor,
+                                      float input_scale_factor,
                                       void * ptr_inputs,
                                       void * ptr_outputs,
                                       intel_pwl_segment_t *ptr_segments) {
@@ -537,6 +538,7 @@ class AmIntelDnn {
                                             num_bytes_per_output,
                                             num_segments,
                                             output_scale_factor,
+                                            input_scale_factor,
                                             ptr_inputs,
                                             ptr_outputs,
                                             ptr_segments,
@@ -552,6 +554,7 @@ class AmIntelDnn {
                                       uint32_t num_bytes_per_output,
                                       uint32_t num_segments,
                                       float output_scale_factor,
+                                      float input_scale_factor,
                                       A *&ptr_inputs,
                                       B *&ptr_outputs,
                                       intel_pwl_segment_t *ptr_segments) {
@@ -564,6 +567,7 @@ class AmIntelDnn {
                                             num_bytes_per_output,
                                             num_segments,
                                             output_scale_factor,
+                                            input_scale_factor,
                                             (void *&) ptr_inputs,
                                             (void *&) ptr_outputs,
                                             ptr_segments,
@@ -772,11 +776,12 @@ class AmIntelDnn {
                                              uint32_t num_bytes_per_input,
                                              uint32_t num_bytes_per_output,
                                              uint32_t num_segments,
-                                             float   output_scale_factor,
-                                             void *& ptr_inputs,
-                                             void *& ptr_outputs,
+                                             float    output_scale_factor,
+                                             float    input_scale_factor,
+                                             void *&  ptr_inputs,
+                                             void *&  ptr_outputs,
                                              intel_pwl_segment_t *ptr_segments,
-                                             bool    postInitMem);
+                                             bool     postInitMem);
 
     static void InitConvolutional1DComponentPrivate(intel_dnn_component_t &comp,
                                              uint32_t num_rows_in,
