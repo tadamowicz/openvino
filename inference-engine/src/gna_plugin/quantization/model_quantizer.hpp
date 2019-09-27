@@ -23,7 +23,7 @@ template<class T>
 class ModelQuantizer {
  public:
     InferenceEngine::ICNNNetwork::Ptr quantize(InferenceEngine::ICNNNetwork &model, float scaleFactor) const {
-        return quantize(model, [](InferenceEngine::CNNNetPtr &){}, std::vector<float>({scaleFactor}));
+        return quantize(model, [](InferenceEngine::CNNNetPtr &, bool runBeforeCopy){}, std::vector<float>({scaleFactor}));
     }
 
     template <class PreQuantisationCb>
@@ -32,7 +32,7 @@ class ModelQuantizer {
     }
 
     InferenceEngine::ICNNNetwork::Ptr quantize(InferenceEngine::ICNNNetwork &model, std::vector<float> scaleFactor) const {
-        return quantize(model, [](InferenceEngine::CNNNetPtr &){}, scaleFactor);
+        return quantize(model, [](InferenceEngine::CNNNetPtr &, bool runBeforeCopy){}, scaleFactor);
     }
 
     template <class PreQuantisationCb>
@@ -42,7 +42,10 @@ class ModelQuantizer {
             transformLayer(newLayer, WeightsConverter());
             return newLayer;
         };
-        auto copiedNet = InferenceEngine::CNNNetCopy(model, visitor);
+        auto copiedNet = InferenceEngine::CNNNetCopy(model);
+        cb(copiedNet, true);
+
+        copiedNet = InferenceEngine::CNNNetCopy(*copiedNet, visitor);
 
         // TODO: probably not the best way of using dynamic cast in order to transform Precision
         // one of solution is to create not copyNet overloads, that accepts 2 functors, one for layer copy
@@ -54,7 +57,7 @@ class ModelQuantizer {
 
         // allow client code to access copied topology, to avoid copies if user would like to chain quantisation with
         // another preprocessing
-        cb(copiedNet);
+        cb(copiedNet, false);
 
         if (scaleFactor.empty()) {
             THROW_GNA_EXCEPTION << "Scale factor is empty";

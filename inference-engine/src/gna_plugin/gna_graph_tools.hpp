@@ -13,15 +13,7 @@
 
 namespace InferenceEngine {
 
-/**
- * @@brief insertLayer between given layers
- * @param after, insertion happened after this layer, if after is nullptr, insertion happened after all inputLayers for before layer
- * @param before, insertion happened before layer, if before is nullptr, insertion happened before all outputLayers of after layer
- * @param layerToInsert inserted layer
- * @param outDataIndex index data to be used to insert layer after it. Cannot be used to specify allOutputDatas
- */
-const size_t invalid_data_idx = std::numeric_limits<size_t>::max();
-
+static constexpr size_t invalid_data_idx = std::numeric_limits<size_t>::max();
 
 // compares data, for copied network and in old network
 inline bool areEqualDatas(DataPtr source, DataPtr target) {
@@ -45,7 +37,6 @@ inline bool areEqualDatas(DataPtr source, DataPtr target) {
     // inputTO layers are identical by design
     return true;
 }
-
 
 /**
  * @brief pointer of previous layers
@@ -81,7 +72,6 @@ inline InferenceEngine::CNNLayerPtr  CNNNetPrevLayer(const InferenceEngine::CNNL
  * also if layers have different dimensions they are preserved, so layers should be dimensions agnostic
  * lhs is a first node in topological order - this is current limitation to avoid passing cnnnetwork object
  */
-
 inline void CNNNetSwapLayers(InferenceEngine::CNNLayerPtr lhs,
                              InferenceEngine::CNNLayerPtr rhs) {
     if (lhs == nullptr || rhs ==nullptr) {
@@ -238,6 +228,15 @@ inline void CNNNetSwapLayers(InferenceEngine::CNNLayerPtr lhs,
     lhs->outData.front()->setDims(rhs->outData.front()->getDims());
 }
 
+
+
+/**
+ * @@brief insertLayer between given layers
+ * @param after, insertion happened after this layer, if after is nullptr, insertion happened after all inputLayers for before layer
+ * @param before, insertion happened before layer, if before is nullptr, insertion happened before all outputLayers of after layer
+ * @param layerToInsert inserted layer
+ * @param outDataIndex index data to be used to insert layer after it. Cannot be used to specify allOutputDatas
+ */
 inline void CNNNetworkInsertLayer(CNNLayerPtr after,
                                   CNNLayerPtr before,
                                   CNNLayerPtr layerToInsert,
@@ -348,7 +347,7 @@ inline void CNNNetworkInsertLayer(CNNLayerPtr after,
                 for (auto &&next : after->outData) {
                     if (!next->getInputTo().empty()) continue;
                     next->getInputTo()[layerToInsert->name] = layerToInsert;
-                    layerToInsert->insData.push_back(after->outData.front());
+                    layerToInsert->insData.push_back(next);
                 }
             }
         }

@@ -78,6 +78,9 @@ class LayerInfo {
     bool isConcatAlignFilter() const noexcept {
         return isOfType("ConcatAlignFilter");
     }
+    bool isAffineFilter() const noexcept {
+        return isOfType("AffineFilter");
+    }
     bool isRelu() const noexcept {
         return isOfType("relu");
     }
@@ -93,6 +96,14 @@ class LayerInfo {
     }
     bool isInput() const noexcept {
         return isOfType("input");
+    }
+    bool isOutput() const noexcept {
+        for (auto& out : layer->outData) {
+            if (out->getInputTo().empty()) {
+                return true;
+            }
+        }
+        return false;
     }
     bool isConst() const noexcept {
         return isOfType("const");

@@ -59,14 +59,14 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
     static bool fp32eq(float p1, float p2) {
         return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
     }
-    float getActivationScale(GNAPluginNS::LayerInfo const&  layer, QuantizedLayerParams const* qunatizedParams) {
+    float getActivationScale(GNAPluginNS::LayerInfo const&  layer, QuantizedLayerParams const* quantizedParams) {
             // todo: calculate proper scale factor where we need to expand it a bit to be safe to stay in int16 weights
             // set the initial value
             float result = 1.0f;
             result = (layer.isIdentity()) ? identity_scale_factor : activation_scale_factor;
             // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
             if (layer.isRelu() &&
-                    static_cast<uint64_t>(result * qunatizedParams->_src_quant.scale)
+                    static_cast<uint64_t>(result * quantizedParams->_src_quant.scale)
                                                                 > std::numeric_limits<int32_t>::max()-1) {
                 result = (result * 0.5);
             }

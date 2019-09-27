@@ -19,16 +19,17 @@ class Pass {
     virtual void attach(const std::vector<InferenceEngine::CNNLayerPtr> & layers)  = 0;
     virtual std::string getName() const = 0;
     virtual void run() = 0;
+    virtual bool runBeforeCopyPass() { return false; }
 };
 /**
  * Passmanager interface available for individual passes, usually needed to store shared data between passes
  */
 class IPassManager {
- public:
+public:
     virtual ~IPassManager() = default;
-    virtual int & getIntVar(std::string name)  = 0;
-    virtual const Policy & getPolicy() const = 0;
-    virtual const InferenceEngine::CNNNetPtr & getNetwork() const = 0;
+    virtual int &getIntVar(std::string name) = 0;
+    virtual const Policy &getPolicy() const = 0;
+    virtual const InferenceEngine::CNNNetPtr &getNetwork() const = 0;
 };
 
 class BasePass : public Pass {
@@ -51,7 +52,16 @@ class PassName##Pass : public BasePass {\
     using BasePass::BasePass;\
     void run() override;\
     std::string getName() const override { return #PassName;}\
-}
+};
+
+#define DECL_PASS_BEFORE_COPY(PassName) \
+class PassName##Pass : public BasePass {\
+ public:\
+    using BasePass::BasePass;\
+    void run() override;\
+    bool runBeforeCopyPass() override { return true; };\
+    std::string getName() const override { return #PassName;}\
+};
 
 /**
 * @brief GNA affine layers are always have activation atached, while IR not
@@ -122,17 +132,17 @@ DECL_PASS(ReorderConcatInputs);
 /**
 * @brief unrolled LSTM cell layer in supported GNA primitives
 */
-DECL_PASS(UnrollLSTMCell);
+DECL_PASS_BEFORE_COPY(UnrollLSTMCell);
 
 /**
 * @brief unrolled Tensor Iterator layer in supported GNA layers
 */
-DECL_PASS(UnrollTI);
+DECL_PASS_BEFORE_COPY(UnrollTI);
 
 /**
 * @brief removed const layer before reshape layer
 */
-DECL_PASS(RemoveConst);
+DECL_PASS_BEFORE_COPY(RemoveConst);
 
 
 class PassManager : public IPassManager, public std::enable_shared_from_this<PassManager> {
@@ -140,10 +150,13 @@ class PassManager : public IPassManager, public std::enable_shared_from_this<Pas
     InferenceEngine::CNNNetPtr network;
     std::vector<std::shared_ptr<Pass>> passes;
     std::map<std::string, int> intMap;
- public:
-    explicit PassManager(Policy policy, InferenceEngine::CNNNetPtr network) noexcept
+    bool runBeforeCopy;
+
+public:
+    explicit PassManager(Policy policy, InferenceEngine::CNNNetPtr network, bool runBeforeCopy) noexcept
     : policy(policy)
-    , network(network) {}
+    , network(network)
+    , runBeforeCopy(runBeforeCopy) {}
 
     template <class T>
     void registerPass() {
