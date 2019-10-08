@@ -1189,6 +1189,9 @@ void GNAPluginNS::backend::AMIntelDNN::InitGNAStruct(intel_nnet_type_t *ptr_nnet
 #endif
     for (int i = 0; i < component.size(); i++) {
         // std::cout << "Component + " << i <<"=GNA_" << std::distance(ptr_nnet->pLayers, pLayer) << "\n";
+#if  GNA_LIB_VER == 2
+        auto& comp = component[i];
+#endif
         switch (component[i].operation) {
             case kDnnAffineOp:
 #if  GNA_LIB_VER == 2
