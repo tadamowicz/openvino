@@ -420,24 +420,26 @@ void GNAPlugin::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) {
                     InferenceEngine::details::product(begin(dataOutput->getDims()),
                                                      end(dataOutput->getDims())) * dataOutput->getPrecision().size();
 
+            auto insDatas = CNNLayerFindInsDataIdxes(dataOutput, ptrSplitLayerOutput);
+            if (insDatas.size() != 1) {
+                THROW_GNA_EXCEPTION << "unsupported layer connection: " << layer->name << " to " << ptrSplitLayerOutput->name;
+            }
+
             if (ptrSplitLayerOutput->type == "AffineFilter") {
                 size_t aligned64_offset = ptrSplitLayerOutput->GetParamAsInt("offset");
                 layerInfoItem.splitOutputLayers.emplace_back(
-                    ptrSplitLayerOutput->name,
+                    ptrSplitLayerOutput,
+                    insDatas[0],
                     aligned64_offset * dataOutput->getPrecision().size(),
                     output_layer_size);
             } else {
-                layerInfoItem.splitOutputLayers.emplace_back(ptrSplitLayerOutput->name, split_size, output_layer_size);
+                layerInfoItem.splitOutputLayers.emplace_back(ptrSplitLayerOutput, insDatas[0], split_size, output_layer_size);
             }
         }
 
         split_size += padding + output_layer_size;
     }
     layerInfoItem.reserved_size = split_size;
-    layerInfoItem.splitInputLayer =
-                    GNAPlugin::GNASplitLayer::SplitConnectedLayerInfo({ptrSplitLayerInput->type, 0,
-                                                                    InferenceEngine::details::product(begin(dataInput->getDims()),
-                                                                    end(dataInput->getDims())) * dataInput->getPrecision().size()});
     split_connection.emplace(id, layerInfoItem);
 }
 
@@ -2918,9 +2920,8 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
     if (layerInfoObj.isSplit() || layerInfoObj.isSlice()) {
         auto& splittingLayer = prevLayer;
         auto& splitName = splittingLayer->name;
-        auto& name = layer->name;
 
-        // we look for this concat layer pointer in extra concat map
+        // we look for this split layer pointer in pre calculated map
         auto splitLayerInfo = split_connection.find(splitName);
 
         if (splitLayerInfo != split_connection.end()) {
@@ -2928,8 +2929,8 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
             // find this input in vector sum all outputs in primitive
             auto it = std::find_if(splitLayerInfoItem.splitOutputLayers.begin(),
                                     splitLayerInfoItem.splitOutputLayers.end(),
-                                            [&name](GNAPlugin::GNASplitLayer::SplitConnectedLayerInfo &item) {
-                                                return item.name == name;
+                                            [&idx, &layer](GNAPlugin::GNASplitLayer::SplitConnectedLayerInfo &item) {
+                                                return item.connectedTo == layer && item.insDataIdx == idx;
                                             });
 
             if (it != splitLayerInfoItem.splitOutputLayers.end()) {

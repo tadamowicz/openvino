@@ -315,8 +315,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
      public:
         explicit GNASplitLayer(InferenceEngine::CNNLayerPtr layer) :
-                                        splitLayer(layer),
-                                        splitInputLayer()
+                                        splitLayer(layer)
                                         {}
 
         InferenceEngine::CNNLayerPtr getSplit() { return splitLayer; }
@@ -329,26 +328,21 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
          * gna memory of this offset from gna_ptr
          */
         struct SplitConnectedLayerInfo {
-            SplitConnectedLayerInfo() {}
-            SplitConnectedLayerInfo(std::string& n,
+            SplitConnectedLayerInfo() = default;
+            SplitConnectedLayerInfo(CNNLayerPtr connectedTo,
+                                    int insDataIdx,
                                     size_t o,
                                     size_t p) :
-                                     name(n),
+                                     connectedTo(connectedTo),
+                                     insDataIdx(insDataIdx),
                                      offset(o),
                                      pure_size(p) {}
 
-            SplitConnectedLayerInfo& operator=
-                    (SplitConnectedLayerInfo const& layerInfo) {
-                this->name      = layerInfo.name;
-                this->offset    = layerInfo.offset;
-                this->pure_size = layerInfo.pure_size;
-                return *this;
-            }
-            std::string name = "";
-            size_t offset    = 0;  // in number of elements of input layer
-            size_t pure_size = 0;
+            CNNLayerPtr  connectedTo;
+            int          insDataIdx = 0;
+            size_t       offset     = 0;  // in number of elements of input layer
+            size_t       pure_size  = 0;
         };
-        SplitConnectedLayerInfo splitInputLayer;
         std::vector<SplitConnectedLayerInfo> splitOutputLayers;
     };
 
