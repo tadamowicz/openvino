@@ -38,6 +38,24 @@ inline bool areEqualDatas(DataPtr source, DataPtr target) {
     return true;
 }
 
+/// @brief utility to locate input data idx from given outdata and given layer
+inline std::vector<int> CNNLayerFindInsDataIdxes(DataPtr sourceData, CNNLayerPtr layer) {
+    std::vector<int> dataIdxes;
+    auto outLayers = sourceData->getInputTo();
+    for (auto & outLayer : outLayers) {
+        if (outLayer.second.get() != layer.get()) {
+            continue;
+        }
+        for (int j = 0; j < layer->insData.size(); j++) {
+            if (areEqualDatas(layer->insData[j].lock(), sourceData)) {
+                dataIdxes.push_back(j);
+            }
+        }
+    }
+    IE_ASSERT(!dataIdxes.empty());
+    return dataIdxes;
+}
+
 /**
  * @brief pointer of previous layers
  * @param idx - index in previous layer collection
@@ -245,24 +263,6 @@ inline void CNNNetworkInsertLayer(CNNLayerPtr after,
         THROW_IE_EXCEPTION << "Cannot Insert Layer: before or after layers should be valid layer pointers";
     }
 
-    // internal utility to locate input data idx in layer
-    auto findInsDataIdxes = [&](DataPtr sourceData, CNNLayerPtr layer) {
-        std::vector<int> dataIdxes;
-        auto outLayers = sourceData->getInputTo();
-        for (auto & outLayer : outLayers) {
-            if (outLayer.second.get() != layer.get()) {
-                continue;
-            }
-            for (int j = 0; j < layer->insData.size(); j++) {
-                if (areEqualDatas(layer->insData[j].lock(), sourceData)) {
-                    dataIdxes.push_back(j);
-                }
-            }
-        }
-        IE_ASSERT(!dataIdxes.empty());
-        return dataIdxes;
-    };
-
     bool bLocated = false;
     bool hasOutputIndex = outDataIndex != invalid_data_idx;
     if (after != nullptr) {
@@ -278,17 +278,8 @@ inline void CNNNetworkInsertLayer(CNNLayerPtr after,
                     continue;
 
                 // located data
-
-
-                bool bLocatedBackward = true;
-
-                for (auto x : findInsDataIdxes(data, input)) {
+                for (auto x : CNNLayerFindInsDataIdxes(data, input)) {
                     input->insData[x] = layerToInsert->outData.front();
-                }
-
-                if (!bLocatedBackward) {
-                    THROW_IE_EXCEPTION << "Layer before has no back connection to after : " << after->name << " vs "
-                                       << input->name;
                 }
 
                 layerToInsert->outData.front()->getInputTo()[inputIt->first] = input;
