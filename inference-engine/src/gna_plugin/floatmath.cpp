@@ -8,7 +8,7 @@
 #include "pwl.h"
 #include "gna_plugin_log.hpp"
 #include <cmath>
-
+#include <limits>
 
 void CNNFilter32(intel_dnn_component_t *component) {
     float *ptr_filters = reinterpret_cast<float *>(component->op.conv1D.ptr_filters);
@@ -60,14 +60,16 @@ void CNNMaxPool(intel_dnn_component_t *component, intel_dnn_number_type_t number
                     for (uint32_t k = j; k < num_end; k++) {
                         sum += ptr_inputs[k * num_columns + i];
                     }
-                    if (sum > 2147483647.0) {
-                        ptr_outputs[m * num_columns + i] = 2147483647L;
+                    constexpr int32_t sum_max_threshold = std::numeric_limits<int32_t>::max();
+                    constexpr int32_t sum_min_threshold = std::numeric_limits<int32_t>::min();
+                    if (sum > sum_max_threshold) {
+                        ptr_outputs[m * num_columns + i] = sum_max_threshold;
                         num_saturate++;
-                    } else if (sum < -2147483648.0) {
-                        ptr_outputs[m * num_columns + i] = -2147483648L;
+                    } else if (sum < sum_min_threshold) {
+                        ptr_outputs[m * num_columns + i] = sum_min_threshold;
                         num_saturate++;
                     } else {
-                        ptr_outputs[m * num_columns + i] = (int32_t) sum;
+                        ptr_outputs[m * num_columns + i] = static_cast<int32_t>(sum);
                     }
                     m++;
                 }
