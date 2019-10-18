@@ -1739,6 +1739,10 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
 }
 
 void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
+    // move blobs from Constant layers to Convolution, Deconvolution, FullyConnected layers attributes
+    BlobTransformation blobsTransformation;
+    blobsTransformation.transform(network, true);
+
     //  Check the input network
     std::string error;
     if (!AreLayersSupported(network, error)) {
