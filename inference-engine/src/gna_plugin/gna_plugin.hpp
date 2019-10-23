@@ -177,6 +177,10 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void Export(const std::string &fileName);
     InferenceEngine::IExecutableNetwork::Ptr ImportNetwork(const std::string &modelFileName
         , const std::map<std::string, std::string> &config) override { THROW_GNA_EXCEPTION << "Not implemented"; }
+    ExecutableNetwork ImportNetworkImpl(std::istream& networkModel,
+                                        const std::map<std::string, std::string> &config) override {
+        THROW_GNA_EXCEPTION << "Not implemented";
+    }
     InferenceEngine::IExecutableNetwork::Ptr ImportNetwork(const std::string &modelFileName);
 
 
