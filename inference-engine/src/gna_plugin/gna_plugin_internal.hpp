@@ -29,6 +29,11 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
                                                 const std::map<std::string, std::string> &config) override {
         return make_executable_network(std::make_shared<GNAExecutableNetwork>(modelFileName, config));
     }
+    InferenceEngine::ExecutableNetwork ImportNetwork(
+                                        std::istream &,
+                                        const std::map<std::string, std::string> &) override {
+        THROW_GNA_EXCEPTION << "Not implemented";
+    }
 
     std::string GetName() const noexcept override {
         auto plg = std::make_shared<GNAPlugin>();

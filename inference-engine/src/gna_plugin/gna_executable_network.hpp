@@ -49,5 +49,9 @@ class GNAExecutableNetwork : public InferenceEngine::ExecutableNetworkThreadSafe
     void Export(const std::string &modelFileName) override {
         plg->Export(modelFileName);
     }
+
+    void Export(std::ostream&) override {
+        THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
+    }
 };
 }  // namespace GNAPluginNS
