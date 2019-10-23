@@ -74,6 +74,13 @@ using namespace InferenceEngine::details;
 #define FROM_IR_DIM(mem, idx)\
 ((mem->getTensorDesc().getDims().size() > (idx) - 1) ? mem->getTensorDesc().getDims()[mem->getTensorDesc().getDims().size() - (idx)] : 1)
 
+#ifdef __clang__
+namespace InferenceEngine {
+    template<>
+    InferenceEngine::TBlob<intel_compound_bias_t, std::enable_if<true, void> >::~TBlob() { free(); }
+}
+#endif  // __clang__
+
 inline int16_t GNAPluginNS::ConvertFloatToInt16(float src) {
         float rounding_value = (src > 0) ? 0.5f : -0.5f;
         float value = src + rounding_value;
@@ -3010,4 +3017,3 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
 
     THROW_GNA_EXCEPTION << "Cannot connect input for: " << layer->name;
 }
-
