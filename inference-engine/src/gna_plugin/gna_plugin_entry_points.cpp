@@ -11,6 +11,8 @@ using namespace InferenceEngine;
 using namespace std;
 using namespace GNAPluginNS;
 
+IE_SUPPRESS_DEPRECATED_START
+
 INFERENCE_PLUGIN_API(StatusCode) CreatePluginEngine(IInferencePlugin *&plugin, ResponseDesc *resp) noexcept {
     try {
         plugin = make_ie_compatible_plugin({2, 1, "GNAPlugin", "GNAPlugin"}, make_shared<GNAPluginInternal>());
