@@ -50,7 +50,9 @@ class GNAExecutableNetwork : public InferenceEngine::ExecutableNetworkThreadSafe
         plg->Export(modelFileName);
     }
 
-    void Export(std::ostream&) override {
+    using ExecutableNetworkInternal::Export;
+
+    void ExportImpl(std::ostream&) override {
         THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
     }
 };
