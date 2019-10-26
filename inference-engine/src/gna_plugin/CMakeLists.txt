@@ -24,14 +24,10 @@ ie_add_plugin(NAME ${TARGET_NAME}
               DEVICE_NAME "GNA"
               SOURCES ${SOURCES} ${HEADERS})
 
-if (LINUX)
-    find_package(Threads)
-endif()
-
 #saving rpath to GNA shared library be used by CI
 log_rpath_from_dir(GNA ${libGNA_LIBRARIES_BASE_PATH})
 
-target_link_libraries(${TARGET_NAME} PRIVATE inference_engine ${INTEL_ITT_LIBS} ${CMAKE_THREAD_LIBS_INIT} libGNA)
+target_link_libraries(${TARGET_NAME} PRIVATE inference_engine ${INTEL_ITT_LIBS} Threads::Threads libGNA)
 target_include_directories(${TARGET_NAME} PUBLIC ${TARGET_INCLUDE_DIRS})
 
 set(TEST_SOURCES
