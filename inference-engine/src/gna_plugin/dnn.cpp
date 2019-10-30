@@ -10,7 +10,13 @@ extern bool global_debug;
 #include <set>
 #include <details/ie_exception.hpp>
 #include <algorithm>
+#if GNA_LIB_VER == 2
+#include <gna2-model-api.h>
+#include "gna2_model_helper.hpp"
+#include "gna2_model_debug_log.hpp"
+#else
 #include <gna-api-types-xnn.h>
+#endif
 
 #ifndef _NO_MKL_
 #include <mkl_dnn.h>
@@ -28,6 +34,7 @@ extern bool global_debug;
 #include "util.h"
 #include "gna_plugin_log.hpp"
 #include "ie_memcpy.h"
+#include "gna_lib_ver_selector.hpp"
 
 #ifdef WIN32
 # define rand_r(X) rand()
@@ -50,8 +57,10 @@ static int & getDumpFolderId() {
     return N;
 }
 
-static std::string getDumpFolderNameGNA() {
-    return std::string("./gna_layers/")+std::to_string(getDumpFolderId() - 1)+"/";
+static std::string getDumpFilePrefixGNA() {
+    const char* prefix = "gna_dump_";
+    const std::string id = std::to_string(getDumpFolderId() - 1);
+    return std::string("./")+ prefix + id +"_";
 }
 
 static std::string getDumpFolderName() {
@@ -1942,17 +1951,8 @@ void AmIntelDnn::WriteDnnText(const char *filename, intel_dnn_number_type_t numb
     }
 }
 
-void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
-    intel_nnet_layer_t *pLayer;
-
-    if (ptr_nnet == nullptr)
-        THROW_GNA_EXCEPTION << "Invalid input parameter";
-    if (ptr_nnet->pLayers != nullptr)
-        THROW_GNA_EXCEPTION << "InitGNAStruct can't work on preallocated layers array";
-    if (component.empty())
-        THROW_GNA_EXCEPTION << "empty model in AmIntelDnn::InitGNAStruct()";
-
-    ptr_nnet->nLayers = 0;
+uint32_t AmIntelDnn::CountLayers() {
+    uint32_t n = 0;
     for (auto && c : component) {
         if (c.operation == kDnnAffineOp
             || (c.operation == kDnnDiagonalOp)
@@ -1962,20 +1962,76 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
             || (c.operation == kDnnRecurrentOp)
             || (c.operation == kDnnCopyOp)
             ) {
-            ptr_nnet->nLayers++;
+            n++;
         }
     }
+    return n;
+}
+
+template <class T>
+void AdvanceOperationIfAllApplied(const std::vector<intel_dnn_component_t>& component, int i, T*& operation) {
+    if (i == component.size() - 1 || component[i + 1].operation != kDnnPiecewiselinearOp) {
+        ++operation;
+    }
+}
+
+template <class T>
+void AdvanceCnnOperationIfAllApplied(const std::vector<intel_dnn_component_t>& component, int i, T*& operation) {
+    if (i == component.size() - 1 || ((component[i + 1].operation != kDnnMaxPoolOp)
+        && (component[i + 1].operation != kDnnPiecewiselinearOp))) {
+        operation++;
+    }
+}
+
+#if GNA_LIB_VER == 2
+void AmIntelDnn::InitGNAStruct(Gna2Model *gnaModel) {
+    Gna2Operation * gnaOperation;
+    if (gnaModel == nullptr)
+        THROW_GNA_EXCEPTION << "Invalid input parameter";
+    if (gnaModel->Operations != nullptr)
+        THROW_GNA_EXCEPTION << "InitGNAStruct can't work on preallocated layers array";
+#else
+void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
+    intel_nnet_layer_t *pLayer;
+    if (ptr_nnet == nullptr)
+        THROW_GNA_EXCEPTION << "Invalid input parameter";
+    if (ptr_nnet->pLayers != nullptr)
+        THROW_GNA_EXCEPTION << "InitGNAStruct can't work on preallocated layers array";
+#endif
+
+    if (component.empty())
+        THROW_GNA_EXCEPTION << "empty model in AmIntelDnn::InitGNAStruct()";
+
+#if GNA_LIB_VER == 2
+    gnaModel->NumberOfOperations = CountLayers();
+    gnaModel->Operations = reinterpret_cast<Gna2Operation*>(gnaUserAllocator(gnaModel->NumberOfOperations * sizeof(Gna2Operation)));
+    if (gnaModel->Operations == nullptr)
+        THROW_GNA_EXCEPTION << "out of memory in AmIntelDnn::InitGNAStruct()";
+    memset(gnaModel->Operations, 0, gnaModel->NumberOfOperations * sizeof(Gna2Operation));
+    gnaOperation = gnaModel->Operations;
+#else
+    ptr_nnet->nLayers = CountLayers();
     ptr_nnet->nGroup = num_group_in();
     ptr_nnet->pLayers = reinterpret_cast<intel_nnet_layer_t *>(_mm_malloc(ptr_nnet->nLayers * sizeof(intel_nnet_layer_t), 64));
     if (ptr_nnet->pLayers == nullptr)
         THROW_GNA_EXCEPTION << "out of memory in AmIntelDnn::FillGNAStruct()";
     memset(ptr_nnet->pLayers, 0, ptr_nnet->nLayers * sizeof(intel_nnet_layer_t));
     pLayer = ptr_nnet->pLayers;
-
+#endif
     for (int i = 0; i < component.size(); i++) {
+        auto& comp = component[i];
         // std::cout << "Component + " << i <<"=GNA_" << std::distance(ptr_nnet->pLayers, pLayer) << "\n";
         switch (component[i].operation) {
             case kDnnAffineOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitFullyConnectedAffine(gnaOperation, gnaUserAllocator, gnaUserFree,
+                    createGna2Tensor2D(comp.num_rows_in, comp.num_columns_in, comp.num_bytes_per_input, comp.ptr_inputs),
+                    createGna2Tensor2D(comp.num_rows_out, comp.num_columns_out, comp.num_bytes_per_output, comp.ptr_outputs),
+                    createGna2Tensor2D(comp.num_rows_out, comp.num_rows_in, comp.op.affine.num_bytes_per_weight, comp.op.affine.ptr_weights),
+                    createGna2BiasTensor1D(comp.num_rows_out, comp.op.affine.num_bytes_per_bias, comp.op.affine.ptr_biases),
+                    nullptr);
+                AdvanceOperationIfAllApplied(component, i, gnaOperation);
+#else
                 pLayer->nInputRows = component[i].num_rows_in;
                 pLayer->nInputColumns = component[i].num_columns_in;
                 pLayer->nOutputRows = component[i].num_rows_out;
@@ -2001,11 +2057,19 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                     pAffineLayer->affine.pBiases = component[i].op.affine.ptr_biases;
                     pAffineLayer->affine.pWeights = component[i].op.affine.ptr_weights;
                 }
-                if (i == component.size() - 1 || component[i + 1].operation != kDnnPiecewiselinearOp) {
-                    pLayer++;
-                }
+                AdvanceOperationIfAllApplied(component, i, pLayer);
+#endif
                 break;
             case kDnnDiagonalOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitElementWiseAffine(gnaOperation, gnaUserAllocator, gnaUserFree,
+                    createGna2Tensor2D(comp.num_rows_in, comp.num_columns_in, comp.num_bytes_per_input, comp.ptr_inputs),
+                    createGna2Tensor2D(comp.num_rows_out, comp.num_columns_out, comp.num_bytes_per_output, comp.ptr_outputs),
+                    createGna2Tensor1D(comp.num_rows_out, comp.op.affine.num_bytes_per_weight, comp.op.affine.ptr_weights),
+                    createGna2Tensor1D(comp.num_rows_out, comp.op.affine.num_bytes_per_bias, comp.op.affine.ptr_biases),
+                    nullptr);
+                AdvanceOperationIfAllApplied(component, i, gnaOperation);
+#else
                 pLayer->nInputRows = component[i].num_rows_in;
                 pLayer->nInputColumns = component[i].num_columns_in;
                 pLayer->nOutputRows = component[i].num_rows_out;
@@ -2031,11 +2095,41 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                     pDiagonalLayer->affine.pBiases = component[i].op.affine.ptr_biases;
                     pDiagonalLayer->affine.pWeights = component[i].op.affine.ptr_weights;
                 }
-                if (i == component.size() - 1 || component[i + 1].operation != kDnnPiecewiselinearOp) {
-                    pLayer++;
-                }
+                AdvanceOperationIfAllApplied(component, i, pLayer);
+#endif
                 break;
             case kDnnRecurrentOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitRecurrent(
+                        gnaOperation,
+                        gnaUserAllocator,
+                        gnaUserFree,
+                        createGna2Tensor2D(
+                                comp.num_rows_in,
+                                comp.num_columns_in,
+                                comp.num_bytes_per_input,
+                                comp.ptr_inputs),
+                        createGna2Tensor2D(
+                                comp.num_rows_out,
+                                comp.num_columns_out,
+                                comp.num_bytes_per_output,
+                                comp.ptr_outputs),
+                        createGna2Tensor2D(
+                            comp.num_columns_out,
+                            comp.num_columns_in + comp.num_columns_out,
+                            comp.op.affine.num_bytes_per_weight,
+                            comp.op.affine.ptr_weights),
+                        createGna2Tensor1D(
+                                comp.num_columns_out,
+                                comp.op.affine.num_bytes_per_bias,
+                                comp.op.affine.ptr_biases),
+                        createGna2Tensor1D(
+                                0,
+                                1,
+                                nullptr),  //  Temporal PWL as not null required by Gna2OperationInitRecurrent
+                        create_uint32_parameter(1));    // TODO: GNA2: Handle other delays
+                AdvanceOperationIfAllApplied(component, i, gnaOperation);
+#else
                 pLayer->nInputRows = component[i].num_rows_in;
                 pLayer->nInputColumns = component[i].num_columns_in;
                 pLayer->nOutputRows = component[i].num_rows_out;
@@ -2053,6 +2147,7 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                         THROW_GNA_EXCEPTION << "could not allocate memory for INTEL_RECURRENT layer structure.";
                     }
                     auto pRecurrentLayer = reinterpret_cast<intel_recurrent_layer_t *>(pLayer->pLayerStruct);
+
                     pRecurrentLayer->pFeedbackBuffer = component[i].op.recurrent.ptr_feedbacks;
                     pRecurrentLayer->pwl.pSegments = nullptr;
                     pRecurrentLayer->pwl.nSegments = 0;
@@ -2062,11 +2157,51 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                     pRecurrentLayer->affine.pBiases = component[i].op.recurrent.ptr_biases;
                     pRecurrentLayer->affine.pWeights = component[i].op.recurrent.ptr_weights;
                 }
-                if (i == component.size() - 1 || component[i + 1].operation != kDnnPiecewiselinearOp) {
-                    pLayer++;
-                }
+                AdvanceOperationIfAllApplied(component, i, pLayer);
+#endif
                 break;
             case kDnnConvolutional1dOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitConvolution(
+                        gnaOperation,
+                        gnaUserAllocator,
+                        gnaUserFree,
+                        createGna2Tensor2D(
+                                comp.num_rows_in,
+                                comp.num_columns_in,
+                                comp.num_bytes_per_input,
+                                comp.ptr_inputs),
+                        createGna2Tensor3D(
+                                comp.num_rows_out,
+                                comp.num_columns_out / comp.op.conv1D.num_filters,
+                                comp.op.conv1D.num_filters,
+                                comp.num_bytes_per_output,
+                                comp.ptr_outputs),
+                        createGna2Tensor2D(
+                                comp.op.conv1D.num_filters,
+                                comp.op.conv1D.num_filter_coefficients,
+                                comp.op.conv1D.num_bytes_per_weight,
+                                comp.op.conv1D.ptr_filters),
+                        createGna2Tensor1D(
+                                comp.op.conv1D.num_filters,
+                                comp.op.conv1D.num_bytes_per_bias,
+                                comp.op.conv1D.ptr_biases),
+                        createGna2Tensor1D(
+                                0,
+                                1,
+                                nullptr),  // Temporal PWL as not null required by Gna2OperationInitConvolution
+                        create_shape1D_parameter(
+                                comp.op.conv1D.num_feature_maps * comp.op.conv1D.num_feature_map_columns),
+                        nullptr);
+
+                // TODO: GNA2: We have to explicitly enforce to use Legacy CNN
+                snprintf(
+                        const_cast<char*>(gnaOperation->Operands[1]->Layout),
+                        sizeof(gnaOperation->Operands[1]->Layout) / sizeof(char),
+                        "GNA1");
+
+                AdvanceCnnOperationIfAllApplied(component, i, gnaOperation);
+#else
                 pLayer->nInputRows = component[i].num_rows_in;
                 pLayer->nInputColumns = component[i].num_columns_in;
                 pLayer->nOutputRows = component[i].num_rows_out;
@@ -2100,17 +2235,47 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                     pConvolutionalLayer->pBiases = component[i].op.conv1D.ptr_biases;
                     pConvolutionalLayer->pFilters = component[i].op.conv1D.ptr_filters;
                 }
-                if (i == component.size() - 1 || ((component[i + 1].operation != kDnnMaxPoolOp)
-                        && (component[i + 1].operation != kDnnPiecewiselinearOp))) {
-                    pLayer++;
-                }
+                AdvanceCnnOperationIfAllApplied(component, i, pLayer);
+#endif
                 break;
             case kDnnMaxPoolOp:
                 if (i == 0) {
                     THROW_GNA_EXCEPTION << "Pooling component with no preceeding component";
+#if  GNA_LIB_VER == 2
+                } else if (gnaOperation->Type == Gna2OperationTypeConvolution) {
+                    if (gnaOperation->Operands[PwlOpIdx]->Shape.Dimensions[0] != 0) {
+                        THROW_GNA_EXCEPTION << "Encountered activation component before pooling component at." << i;
+                    } else {
+                        const auto poolMode = reinterpret_cast<Gna2PoolingMode*>(gnaUserAllocator(sizeof(Gna2PoolingMode)));
+                        *poolMode = (comp.op.maxpool.do_sum_not_max) ? Gna2PoolingModeSum : Gna2PoolingModeMax;
+                        const auto poolWindow = create_shape1D_parameter(comp.op.maxpool.num_inputs);
+                        const auto poolStride = create_shape1D_parameter(comp.op.maxpool.num_inputs_step);
+
+                        // number of output columns correction - based on GNA-library expectations
+
+                        if ((gnaOperation->NumberOfParameters > PoolModeParamIdx && gnaOperation->Parameters[PoolModeParamIdx] !=nullptr) ||
+                            (gnaOperation->NumberOfParameters > PoolWinParamIdx && gnaOperation->Parameters[PoolWinParamIdx] != nullptr) ||
+                            (gnaOperation->NumberOfParameters > PoolStrideParamIdx && gnaOperation->Parameters[PoolStrideParamIdx] != nullptr)) {
+                            THROW_GNA_EXCEPTION << "Pooling parameters should not be initialized";
+                        }
+                        HelperGna2OperationSetParameter(gnaOperation, gnaUserAllocator, gnaUserFree, PoolModeParamIdx, poolMode);
+                        HelperGna2OperationSetParameter(gnaOperation, gnaUserAllocator, gnaUserFree, PoolWinParamIdx, poolWindow);
+                        HelperGna2OperationSetParameter(gnaOperation, gnaUserAllocator, gnaUserFree, PoolStrideParamIdx, poolStride);
+
+                        const auto inVecCnt = gnaOperation->Operands[InOpIdx]->Shape.Dimensions[1];
+
+                        const auto nFltSize = gnaOperation->Operands[FilterOpIdx]->Shape.Dimensions[1];
+                        //  Always move 1 "row"
+                        const auto fltStrideSz = reinterpret_cast<Gna2Shape*>(gnaOperation->Parameters[ConvStrideParamIdx])->Dimensions[0];
+                        const auto maxNCOE = (inVecCnt - nFltSize) / fltStrideSz + 1;
+                        //  FLAT input matrix, pooled outputs per filter
+                        const_cast<Gna2Tensor*>(gnaOperation->Operands[OutOpIdx])->Shape.Dimensions[1] =
+                            (maxNCOE - 1) / poolStride->Dimensions[0] + 1;
+                    }
+#else
                 } else if (pLayer->nLayerKind == INTEL_CONVOLUTIONAL) {
                     if (pLayer->pLayerStruct == nullptr) {
-                        THROW_GNA_EXCEPTION "INTEL_CONVOLUTIONAL layer structure was not initialized.";
+                        THROW_GNA_EXCEPTION << "INTEL_CONVOLUTIONAL layer structure was not initialized.";
                     }
                     auto pConvolutionalLayer = reinterpret_cast<intel_convolutional_layer_t *>(pLayer->pLayerStruct);
                     // it is possible to have activation preceding to maxpool
@@ -2133,11 +2298,44 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                         // old code
                         // pLayer->nOutputColumns /= pConvolutionalLayer->nPoolStride;
                     }
+#endif
                 } else {
                     THROW_GNA_EXCEPTION << "Pooling component applied to non-convolutional layer";
                 }
                 break;
             case kDnnPiecewiselinearOp:
+#if  GNA_LIB_VER == 2
+                {
+                    auto& outputTensor = const_cast<Gna2Tensor&>(*gnaOperation->Operands[OutOpIdx]);
+                    outputTensor.Data = comp.ptr_outputs;
+                    outputTensor.Type = Gna2DataTypeFromBytes(comp.num_bytes_per_output);
+                    if (i == 0) {
+                        THROW_GNA_EXCEPTION << "PWL component with no preceding component.";
+                    }
+                    if ((component[i - 1].operation == kDnnAffineOp)
+                        || (component[i - 1].operation == kDnnDiagonalOp)
+                        || (component[i - 1].operation == kDnnRecurrentOp)
+                        || (component[i - 1].operation == kDnnConvolutional1dOp)
+                        || ((component[i - 1].operation == kDnnMaxPoolOp) &&
+                        (component[i - 2].operation == kDnnConvolutional1dOp))) {
+                        if (gnaOperation->Operands[PwlOpIdx] == nullptr) {
+                            HelperGna2OperationSetOperand(gnaOperation, gnaUserAllocator, gnaUserFree, PwlOpIdx, createGna2Tensor1D(1, 1, nullptr));
+                        }
+                        auto& pwlTensor = const_cast<Gna2Tensor&>(*gnaOperation->Operands[PwlOpIdx]);
+                        pwlTensor = HelperGna2TensorInit1D(comp.op.pwl.num_segments, Gna2DataTypePwlSegment, comp.op.pwl.ptr_segments);
+                        if (component[i - 1].operation == kDnnConvolutional1dOp) {
+                            if (outputTensor.Shape.NumberOfDimensions != 3) {
+                                THROW_GNA_EXCEPTION << "CNN output NumberOfDimensions != 3";
+                            }
+                            if (outputTensor.Shape.Dimensions[0] * outputTensor.Shape.Dimensions[1] * outputTensor.Shape.Dimensions[2] !=
+                                comp.num_columns_out) {
+                                THROW_GNA_EXCEPTION << "PWL after CNN output size mismatch";
+                            }
+                        }
+                    }
+                }
+                gnaOperation++;
+#else
                 pLayer->pOutputs = component[i].ptr_outputs;
                 pLayer->nBytesPerOutput = component[i].num_bytes_per_output;
                 if (pLayer->pLayerStruct == nullptr) {
@@ -2165,9 +2363,15 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                     }
                 }
                 pLayer++;
-
+#endif
                 break;
             case kDnnInterleaveOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitInterleave(gnaOperation, gnaUserAllocator, gnaUserFree,
+                    createGna2Tensor2D(comp.num_rows_in, comp.num_columns_in, comp.num_bytes_per_input, comp.ptr_inputs),
+                    createGna2Tensor2D(comp.num_rows_out, comp.num_columns_out, comp.num_bytes_per_output, comp.ptr_outputs));
+                gnaOperation++;
+#else
                 pLayer->nInputRows = component[i].num_rows_in;
                 pLayer->nInputColumns = component[i].num_columns_in;
                 pLayer->nOutputRows = component[i].num_rows_out;
@@ -2181,8 +2385,15 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                 pLayer->nLayerKind = INTEL_INTERLEAVE;
                 pLayer->pLayerStruct = nullptr;
                 pLayer++;
+#endif
                 break;
             case kDnnDeinterleaveOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitDeInterleave(gnaOperation, gnaUserAllocator, gnaUserFree,
+                    createGna2Tensor2D(comp.num_rows_in, comp.num_columns_in, comp.num_bytes_per_input, comp.ptr_inputs),
+                    createGna2Tensor2D(comp.num_rows_out, comp.num_columns_out, comp.num_bytes_per_output, comp.ptr_outputs));
+                gnaOperation++;
+#else
                 pLayer->nInputRows = component[i].num_rows_in;
                 pLayer->nInputColumns = component[i].num_columns_in;
                 pLayer->nOutputRows = component[i].num_rows_out;
@@ -2196,8 +2407,16 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                 pLayer->nLayerKind = INTEL_DEINTERLEAVE;
                 pLayer->pLayerStruct = nullptr;
                 pLayer++;
+#endif
                 break;
             case kDnnCopyOp:
+#if  GNA_LIB_VER == 2
+                HelperGna2OperationInitCopy(gnaOperation, gnaUserAllocator, gnaUserFree,
+                    createGna2Tensor2D(comp.num_columns_in, comp.num_rows_in, comp.num_bytes_per_input, comp.ptr_inputs),
+                    createGna2Tensor2D(comp.num_columns_out, comp.num_rows_out, comp.num_bytes_per_output, comp.ptr_outputs),
+                    create_shape2D_parameter(comp.op.copy.num_copy_columns, comp.op.copy.num_copy_rows));
+                gnaOperation++;
+#else
                 pLayer->nInputRows = component[i].num_columns_in;
                 pLayer->nInputColumns = component[i].num_rows_in;
                 pLayer->nOutputRows = component[i].num_columns_out;
@@ -2220,6 +2439,7 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
                     pCopyLayer->nCopyCols = component[i].op.copy.num_copy_rows;
                 }
                 pLayer++;
+#endif
                 break;
             default: {
                 THROW_GNA_EXCEPTION << "GNA does yet not support " << intel_dnn_operation_name[component[i].operation];
@@ -2227,9 +2447,33 @@ void AmIntelDnn::InitGNAStruct(intel_nnet_type_t *ptr_nnet) {
         }
     }
     // enable debugging of partial array of components
+#if  GNA_LIB_VER == 2
+    gnaModel->NumberOfOperations = std::distance(gnaModel->Operations, gnaOperation);
+#else
     ptr_nnet->nLayers = std::distance(ptr_nnet->pLayers, pLayer);
+#endif
 }
-
+#if  GNA_LIB_VER == 2
+void AmIntelDnn::DestroyGNAStruct(Gna2Model *gnaModel) {
+    if (gnaModel->Operations != nullptr) {
+        for (int i = 0; i < gnaModel->NumberOfOperations; i++) {
+            switch (gnaModel->Operations[i].Type) {
+            case Gna2OperationTypeFullyConnectedAffine:break;
+            case Gna2OperationTypeElementWiseAffine:break;
+            case Gna2OperationTypeRecurrent:break;
+            case Gna2OperationTypeConvolution:break;
+            case Gna2OperationTypeTransposition:break;
+            case Gna2OperationTypeCopy:break;
+            default:break;
+            }
+            freeGna2Operation(gnaModel->Operations[i]);
+        }
+        gnaUserFree(gnaModel->Operations);
+        gnaModel->Operations = nullptr;
+    }
+    gnaModel->NumberOfOperations = 0;
+}
+#else
 void AmIntelDnn::DestroyGNAStruct(intel_nnet_type_t *ptr_nnet) {
     ptr_nnet->nGroup = 0;
     if (ptr_nnet->pLayers != nullptr) {
@@ -2254,7 +2498,7 @@ void AmIntelDnn::DestroyGNAStruct(intel_nnet_type_t *ptr_nnet) {
     }
     ptr_nnet->nLayers = 0;
 }
-
+#endif
 void AmIntelDnn::GetScaledOutput(float *ptr_output, uint32_t component_index) {
     if (component_index > num_components()) {
         fprintf(stderr, "Illegal component index %d in GetScaledOutput\n", component_index);
@@ -2284,14 +2528,14 @@ void AmIntelDnn::GetScaledOutput(float *ptr_output, uint32_t component_index) {
         throw -1;
     }
 }
-
+#if GNA_LIB_VER == 1
 void AmIntelDnn::WriteInputAndOutputTextGNA(intel_nnet_type_t * nnet) {
 #ifdef LIGHT_DUMP
     if (nnet) {
         for (int i = 0; i < nnet->nLayers; i++) {
             auto component = nnet->pLayers;
             std::stringstream out_file_name;
-            auto getLayerType = [](intel_layer_kind_t kind){
+            auto getLayerType = [](decltype(INTEL_AFFINE) kind){
                 switch (kind){
                     case INTEL_AFFINE : return "affine";
                     case INTEL_AFFINE_DIAGONAL : return "diag";
@@ -2307,10 +2551,10 @@ void AmIntelDnn::WriteInputAndOutputTextGNA(intel_nnet_type_t * nnet) {
                           << getLayerType(component[i].nLayerKind)
                           << "-" << nnet->pLayers[i].nInputRows
                           << "-" << nnet->pLayers[i].nOutputRows;
-
-            auto inputfileName = getDumpFolderNameGNA() + out_file_name.str() + "_input.txt";
-            auto outFileName = getDumpFolderNameGNA() + out_file_name.str() + "_output.txt";
-            auto pwlFileName = getDumpFolderNameGNA() + out_file_name.str() + "_pwl.txt";
+            auto dumpFilePrefixGNA = getDumpFilePrefixGNA();
+            auto inputfileName = dumpFilePrefixGNA + out_file_name.str() + "_input.txt";
+            auto outFileName = dumpFilePrefixGNA + out_file_name.str() + "_output.txt";
+            auto pwlFileName = dumpFilePrefixGNA + out_file_name.str() + "_pwl.txt";
             auto refOutputFileName = getRefFolderName() + out_file_name.str() + "_output.txt";
 
             std::ofstream out_file(outFileName.c_str(), std::ios::out);
@@ -2386,7 +2630,13 @@ void AmIntelDnn::WriteInputAndOutputTextGNA(intel_nnet_type_t * nnet) {
     }
 #endif
 }
-
+#else
+void AmIntelDnn::WriteInputAndOutputTextGNA(const Gna2Model & model) {
+#ifdef LIGHT_DUMP
+    WriteInputAndOutputTextGNAImpl(model, getDumpFilePrefixGNA(), getRefFolderName());
+#endif
+}
+#endif
 void AmIntelDnn::WriteInputAndOutputText() {
 #ifdef LIGHT_DUMP
     for (int i = 0; i < num_components(); i++) {

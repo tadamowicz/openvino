@@ -16,6 +16,9 @@
 #include <sstream>
 #include <string>
 #include "gna-api.h"
+#include "gna_plugin_log.hpp"
+
+#include "gna_lib_ver_selector.hpp"
 
 #ifndef WIN32
 #include <profiler.h>
@@ -226,7 +229,7 @@ uint32_t BufferOffsetFromAddress(std::vector<intel_memory_region_t> &vBuffer, vo
 }
 
 std::string LayerName(intel_nnet_layer_t *pLayer) {
-    intel_layer_kind_t nKind = pLayer->nLayerKind;
+    const auto nKind = pLayer->nLayerKind;
     std::string sKind;
     if (nKind == INTEL_AFFINE) {
         sKind = "affine";
@@ -244,7 +247,7 @@ std::string LayerName(intel_nnet_layer_t *pLayer) {
 }
 
 uint32_t NumInputs(intel_nnet_layer_t *pLayer) {
-    intel_layer_kind_t nKind = pLayer->nLayerKind;
+    const auto nKind = pLayer->nLayerKind;
     uint32_t nInputs;
     if ((nKind == INTEL_AFFINE) || (nKind == INTEL_AFFINE_DIAGONAL)) {
         nInputs = pLayer->nInputRows;
@@ -260,7 +263,7 @@ uint32_t NumInputs(intel_nnet_layer_t *pLayer) {
 }
 
 uint32_t NumOutputs(intel_nnet_layer_t *pLayer) {
-    intel_layer_kind_t nKind = pLayer->nLayerKind;
+    const auto nKind = pLayer->nLayerKind;
     uint32_t nOutputs;
     if ((nKind == INTEL_AFFINE) || (nKind == INTEL_AFFINE_DIAGONAL)) {
         nOutputs = pLayer->nOutputRows;
@@ -276,7 +279,7 @@ uint32_t NumOutputs(intel_nnet_layer_t *pLayer) {
 }
 
 uint32_t NumGroupSize(intel_nnet_layer_t *pLayer) {
-    intel_layer_kind_t nKind = pLayer->nLayerKind;
+    const auto nKind = pLayer->nLayerKind;
     uint32_t nGroupSize;
     if ((nKind == INTEL_AFFINE) || (nKind == INTEL_AFFINE_DIAGONAL)) {
         nGroupSize = pLayer->nOutputColumns;

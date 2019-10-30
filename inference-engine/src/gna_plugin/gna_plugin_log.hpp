@@ -36,6 +36,8 @@ inline GnaLog & gnawarn() {
     return gnalog();
 }
 
+#endif
+
 /**
  * @brief gna_plugin exception unification
  */
@@ -49,6 +51,6 @@ inline GnaLog & gnawarn() {
 #endif
 
 
-#endif
+
 
 #define THROW_GNA_EXCEPTION THROW_IE_EXCEPTION << "[GNAPlugin] in function " << __PRETTY_FUNCTION__<< ": "
