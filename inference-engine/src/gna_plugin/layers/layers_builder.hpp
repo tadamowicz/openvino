@@ -7,12 +7,13 @@
 #include <vector>
 #include <string>
 
-#include "inference_engine.hpp"
-#include "gna_plugin.hpp"
+#include <ie_common.h>
+#include <details/caseless.hpp>
+#include "gna_graph_compiler.hpp"
 
 namespace GNAPluginNS {
 class LayersBuilder {
-    using CreatorFnc = std::function<void(GNAPlugin*, CNNLayerPtr)>;
+    using CreatorFnc = std::function<void(GNAGraphCompiler*, InferenceEngine::CNNLayerPtr)>;
 
 public:
     LayersBuilder(const std::vector<std::string> &types, CreatorFnc callback) {
@@ -20,8 +21,8 @@ public:
             getStorage()[str] = callback;
         }
     }
-    static caseless_unordered_map<std::string, CreatorFnc> &getStorage() {
-        static caseless_unordered_map<std::string, CreatorFnc> LayerBuilder;
+    static InferenceEngine::details::caseless_unordered_map<std::string, CreatorFnc> &getStorage() {
+        static InferenceEngine::details::caseless_unordered_map<std::string, CreatorFnc> LayerBuilder;
         return LayerBuilder;
     }
 };

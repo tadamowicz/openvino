@@ -4,7 +4,7 @@
 //  gna_helper.cpp : various GNA-related utility functions
 //
 
-#include "lstm.hpp"
+#include "runtime/lstm.hpp"
 
 #define USING_GCC
 #define PROFILE

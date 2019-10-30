@@ -5,7 +5,8 @@
 #pragma once
 
 #include <vector>
-#include "dnn.h"
+
+#include "backend/dnn_types.h"
 
 namespace GNAPluginNS {
 struct OutputDesc {

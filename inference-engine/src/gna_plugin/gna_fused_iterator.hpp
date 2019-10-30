@@ -7,7 +7,7 @@
 #include <vector>
 #include <list>
 #include <string>
-#include <gna_graph_tools.hpp>
+#include "gna_graph_tools.hpp"
 
 namespace GNAPluginNS {
 /**

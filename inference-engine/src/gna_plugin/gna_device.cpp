@@ -10,6 +10,7 @@
 #include <vector>
 
 #if GNA_LIB_VER == 2
+#include "gna_api_wrapper.hpp"
 #include "gna2-device-api.h"
 #include "gna2-inference-api.h"
 #include "gna2-instrumentation-api.h"
@@ -22,8 +23,6 @@
 
 #include "details/ie_exception.hpp"
 #include "gna_plugin_log.hpp"
-#include "gna/gna_config.hpp"
-#include "gna_plugin.hpp"
 
 uint8_t* GNADeviceHelper::alloc(uint32_t size_requested, uint32_t *size_granted) {
     void * memPtr;
@@ -33,6 +32,9 @@ uint8_t* GNADeviceHelper::alloc(uint32_t size_requested, uint32_t *size_granted)
     const auto status = Gna2MemoryAlloc(size_requested, size_granted, &memPtr);
     checkGna2Status(status);
 #endif
+    if (memPtr == nullptr) {
+        THROW_GNA_EXCEPTION << "GNAAlloc failed to allocate memory. Requested: " << size_requested << " Granted: " << *(size_granted);
+    }
     dumpXNNROPtr = memPtr;
     dumpXNNROSize = *size_granted;
     return static_cast<uint8_t *>(memPtr);
