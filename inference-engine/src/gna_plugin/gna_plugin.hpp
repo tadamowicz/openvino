@@ -26,6 +26,10 @@
 #include "gna_api_wrapper.hpp"
 #include "gna_plugin_policy.hpp"
 
+#if GNA_LIB_VER == 2
+#include <gna2-model-api.h>
+#endif
+
 namespace GNAPluginNS {
 
 void ConvertToInt16(int16_t *ptr_dst,
@@ -45,12 +49,21 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
  protected:
     std::string _pluginName = "GNA";
     AmIntelDnn dnn;
+#if  GNA_LIB_VER == 2
+    using dnn_ptr = std::shared_ptr<CPPWrapper<Gna2Model>>;
+#else
     using dnn_ptr = std::shared_ptr<CPPWrapper<intel_nnet_type_t>>;
-
+#endif
     /**
      * @brief - copy of nnet structure and indicator that related infer request not yet synced
      */
+#if GNA_LIB_VER == 1
     std::vector<std::tuple<dnn_ptr, int32_t, InferenceEngine::BlobMap>> nnets;
+#else
+    static constexpr uint32_t FAKE_REQUEST_CONFIG_ID = 0xffffffff;
+    std::vector<std::tuple<dnn_ptr>> gnaModels;
+    std::vector<std::tuple<uint32_t, int64_t, InferenceEngine::BlobMap>> gnaRequestConfigToRequestIdMap;
+#endif
 
     std::unordered_map<std::string, intel_dnn_orientation_t> orientation_in;
 
@@ -67,6 +80,9 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
     std::vector<void *>& get_ptr_inputs_global(std::string name);
 
+#if GNA_LIB_VER == 2
+    uint32_t activeLayerIndex = 0xffffffff;
+#endif
     uint32_t *ptr_active_indices = NULL;
     uint32_t num_active_indices = 0;
     uint32_t num_group_in = 0;
@@ -220,7 +236,14 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t num_cnn_rows_out = 0;
     bool done = false;
     std::string dumpXNNPath;
+    std::string dumpXNNGeneration;
+#if GNA_LIB_VER == 1
     intel_gna_proc_t gna_proc_type = static_cast<intel_gna_proc_t>(GNA_SOFTWARE & GNA_HARDWARE);
+#else
+    Gna2AccelerationMode pluginGna2AccMode = Gna2AccelerationModeSoftware;
+    Gna2DeviceVersion pluginGna2DeviceConsistent = Gna2DeviceVersion1_0;
+    void createRequestConfigsForGnaModels();
+#endif
 
     void DumpXNNToFile() const;
     void CreateLayerPrimitive(InferenceEngine::CNNLayerPtr);

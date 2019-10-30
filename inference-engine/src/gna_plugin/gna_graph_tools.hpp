@@ -303,8 +303,11 @@ inline void CNNNetworkInsertLayer(CNNLayerPtr after,
 
                 data->getInputTo()[layerToInsert->outData.front()->getName()]  = layerToInsert;
                 layerToInsert->insData.push_back(data);
+                break;
             }
-            break;
+            if (hasOutputIndex) {
+                break;
+            }
         }
 
         // if given outputDataIndex is not correct, lets find index that matches *before* layer

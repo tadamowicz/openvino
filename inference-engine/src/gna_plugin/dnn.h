@@ -15,7 +15,11 @@
 #include <iomanip>
 #include <type_traits>
 #include <vector>
-#include "gna-api.h"
+#include <gna-api.h>
+
+#if GNA_LIB_VER == 2
+#include <gna2-model-api.h>
+#endif
 
 #define DNN_MAX_BATCH_SIZE 8
 #define DNN_MAX_INPUTS 3072
@@ -686,9 +690,13 @@ class AmIntelDnn {
     void WriteDnnText(const char *filename, intel_dnn_number_type_t number_type);
     uint32_t MemoryRequiredToReadDnnText(const char *filename);
     void ReadDnnText(const char *filename, void *ptr_memory, uint32_t num_memory_bytes, float *ptr_scale_in);
-
+#if GNA_LIB_VER == 2
+    void InitGNAStruct(Gna2Model *gnaModel);
+    void DestroyGNAStruct(Gna2Model *gnaModel);
+#else
     void InitGNAStruct(intel_nnet_type_t *ptr_nnet);
     void DestroyGNAStruct(intel_nnet_type_t *ptr_nnet);
+#endif
     void GetScaledOutput(float *ptr_output, uint32_t component_index);
     uint32_t *ptr_active_outputs() { return (ptr_active_outputs_); }
     uint32_t num_active_outputs() { return (num_active_outputs_); }
@@ -726,7 +734,12 @@ class AmIntelDnn {
     float *ptr_priors;
 
     void WriteInputAndOutputText();
+#if GNA_LIB_VER == 1
     static void WriteInputAndOutputTextGNA(intel_nnet_type_t * nnet);
+#else
+    static void WriteInputAndOutputTextGNA(const Gna2Model & model);
+#endif
+
     void BeginNewWrite();
 
  private:
@@ -736,6 +749,8 @@ class AmIntelDnn {
     uint32_t num_active_outputs_;
     intel_dnn_number_type_t number_type_;
     float input_scale_factor_;
+
+    uint32_t CountLayers();
 
     static void InitCopyComponentPrivate(intel_dnn_component_t &cmp,
                                          intel_dnn_orientation_t orientation,

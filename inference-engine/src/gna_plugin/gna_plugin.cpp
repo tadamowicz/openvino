@@ -49,8 +49,32 @@
 #include "details/ie_cnn_network_tools.h"
 #include "gna_pass_manager.hpp"
 #include "gna_fused_iterator.hpp"
+#include "gna_lib_ver_selector.hpp"
 
+#if GNA_LIB_VER == 2
+#include <gna2-model-api.h>
 
+uint32_t ToByteSize(const Gna2DataType type) {
+    switch (type) {
+    case Gna2DataTypeInt8:
+    case Gna2DataTypeUint8:
+        return 1;
+    case Gna2DataTypeInt16:
+    case Gna2DataTypeUint16:
+        return 2;
+    case Gna2DataTypeInt32:
+    case Gna2DataTypeUint32:
+        return 4;
+    case Gna2DataTypeInt64:
+    case Gna2DataTypeUint64:
+        return 8;
+    default:
+        return 0;
+    }
+}
+
+constexpr uint32_t GNAPluginNS::GNAPlugin::FAKE_REQUEST_CONFIG_ID;
+#endif
 using namespace InferenceEngine;
 using namespace std;
 using namespace GNAPluginNS;
@@ -1855,10 +1879,18 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     auto networkPrecision = newNet->getPrecision();
 
     if (!networkPrecision.is_float()) {
+#if GNA_LIB_VER == 1
         gnadevice.reset(new GNADeviceHelper(gna_proc_type,
                                             gna_lib_async_threads_num,
                                             gna_openmp_multithreading,
                                             performance_counting));
+#else
+        gnadevice.reset(new GNADeviceHelper(pluginGna2AccMode,
+            pluginGna2DeviceConsistent,
+            gna_lib_async_threads_num,
+            gna_openmp_multithreading,
+            performance_counting));
+#endif
         gnamem.reset(new gna_memory_type(
                 make_polymorph<GNAAllocator>(*gnadevice.get()), PAGE_SIZE_BYTES));
     } else {
@@ -1979,20 +2011,30 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     // in fp32 mode last PWL cannot be computed without that
     dnn.InitActiveList(NULL);
 
+#if GNA_LIB_VER == 2
+    gnaModels.push_back(std::make_tuple(make_shared<CPPWrapper<Gna2Model>>()));
+#else
     nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
-
+#endif
     if (!networkPrecision.is_float()) {
         // number of layer gets calculated inside that InitGNAStruct function
+#if GNA_LIB_VER == 2
+        dnn.InitGNAStruct(&std::get<0>(gnaModels.front())->obj);
+#else
         dnn.InitGNAStruct(&std::get<0>(nnets.front())->obj);
+#endif
     }
 
     // creating same gna RW segment for parallel infer requests
     for (int i = 1; i != gna_lib_async_threads_num; i++) {
-        nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
-
+#if GNA_LIB_VER == 2
+        gnaModels.push_back(std::make_tuple(make_shared<CPPWrapper<Gna2Model>>()));
         // this can be improved by just copy all structures, but we are too lazy
+        dnn.InitGNAStruct(&std::get<0>(gnaModels.back())->obj);
+#else
+        nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
         dnn.InitGNAStruct(&std::get<0>(nnets.back())->obj);
-
+#endif
         // relocate rw pointers to new offset
         auto basePtr = reinterpret_cast<uint8_t*>(pParallelExecutionData) + rwSegmentSize * (i - 1);
 
@@ -2014,12 +2056,18 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
             relocate(outputsDesc[j].ptrs[i], outputsDesc[j].ptrs[0]);
         }
 
+#if GNA_LIB_VER == 2
+        for (int j = 0; j != std::get<0>(gnaModels.front())->obj.NumberOfOperations; j++) {
+            auto & gnaOperation = std::get<0>(gnaModels[i])->obj.Operations[j];
+            relocate(const_cast<Gna2Tensor*>(gnaOperation.Operands[0])->Data, gnaOperation.Operands[0]->Data);
+            relocate(const_cast<Gna2Tensor*>(gnaOperation.Operands[1])->Data, gnaOperation.Operands[1]->Data);
+#else
         for (int j = 0; j != std::get<0>(nnets.front())->obj.nLayers; j++) {
             auto & layer = std::get<0>(nnets[i])->obj.pLayers[j];
-
             relocate(layer.pInputs, layer.pInputs);
             relocate(layer.pOutputs, layer.pOutputs);
             relocate(layer.pOutputsIntermediate, layer.pOutputsIntermediate);
+#endif
         }
     }
 
@@ -2086,22 +2134,64 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 #ifdef PLOT
     dnn.WriteGraphWizModel("gna-blob.dot");
 #endif
+#if GNA_LIB_VER == 2
+    createRequestConfigsForGnaModels();
+#endif
 }
+
+#if GNA_LIB_VER == 2
+void GNAPlugin::createRequestConfigsForGnaModels() {
+    if (!gnadevice) {
+        gnaRequestConfigToRequestIdMap.push_back(std::make_tuple(FAKE_REQUEST_CONFIG_ID, -1, InferenceEngine::BlobMap()));
+        return;
+    }
+    for (auto& model : gnaModels) {
+        const auto& gnaNnet = std::get<0>(model).get()->obj;
+        const auto modelId = gnadevice->createModel(gnaNnet);
+        const auto requestConfigId = gnadevice->createRequestConfig(modelId);
+        gnaRequestConfigToRequestIdMap.push_back(std::make_tuple(requestConfigId, -1, InferenceEngine::BlobMap()));
+    }
+}
+#endif
+
 void GNAPlugin::DumpXNNToFile() const {
     // TODO: output  precision as well as pointer might be incorrect, LSTM for sure
     // gna looks automatically set layer 0 as output and adjust it's pointer / precision/ size respectively
-    if (!dumpXNNPath.empty()) {
-        if (!gnadevice) {
-            THROW_GNA_EXCEPTION << "Cannot generate XNNDump for float network";
-        }
-        auto dump = gnadevice->dumpXnn(&std::get<0>(nnets.front())->obj, ptr_active_indices, num_active_indices);
-        dump.header.rw_region_size = gnamem->getRWBytes();
-        dump.header.input_scaling_factor = inputScaleFactors.front();
-        dump.header.output_scaling_factor = outputsDesc.front().scale_factor;
-        std::ofstream dumpStream(dumpXNNPath, std::ios::out | std::ios::binary);
-        dumpStream.write(reinterpret_cast<char*>(&dump.header), sizeof(intel_gna_model_header));
-        dumpStream.write(reinterpret_cast<char*>(dump.model.get()), dump.header.model_size);
+    if (dumpXNNPath.empty()) {
+        return;
     }
+
+    if (dumpXNNGeneration != "GNA1" &&
+        dumpXNNGeneration != "GNA3" &&
+        dumpXNNGeneration != "") {
+        THROW_GNA_EXCEPTION << "Wrong GNA generation for embedded model dump: " << dumpXNNGeneration;
+    }
+
+    if (!gnadevice) {
+        THROW_GNA_EXCEPTION << "Cannot generate XNNDump for float network";
+    }
+    std::ofstream dumpStream(dumpXNNPath, std::ios::out | std::ios::binary);
+#if GNA_LIB_VER == 1
+    auto dump = gnadevice->dumpXnn(&std::get<0>(nnets.front())->obj, ptr_active_indices, num_active_indices);
+    dump.header.rw_region_size = gnamem->getRWBytes();
+    dump.header.input_scaling_factor = inputScaleFactors.front();
+    dump.header.output_scaling_factor = outputsDesc.front().scale_factor;
+    dumpStream.write(reinterpret_cast<char*>(&dump.header), sizeof(intel_gna_model_header));
+    dumpStream.write(reinterpret_cast<char*>(dump.model.get()), dump.header.model_size);
+#else
+    auto const modelId = gnadevice->createModel(std::get<0>(gnaModels.front())->obj);
+    if (dumpXNNGeneration != "GNA3") {
+        auto dump = gnadevice->dumpXnn(modelId);
+        dump.header.RwRegionSize = gnamem->getRWBytes();
+        dump.header.InputScalingFactor = inputScaleFactors.front();
+        dump.header.OutputScalingFactor = outputsDesc.front().scale_factor;
+        dumpStream.write(reinterpret_cast<char*>(&dump.header), sizeof(Gna2ModelSueCreekHeader));
+        dumpStream.write(reinterpret_cast<char*>(dump.model.get()), dump.header.ModelSize);
+    } else {
+        gnadevice->dumpXnnNoMmu(modelId, dumpStream);
+    }
+    gnadevice->releseModel(modelId);
+#endif
 }
 
 void RotateFeatures(uint8_t *ptr_feat,
@@ -2132,6 +2222,9 @@ void RotateFeatures(uint8_t *ptr_feat,
 }
 
 uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, InferenceEngine::BlobMap &result) {
+#if GNA_LIB_VER == 2
+    auto& nnets = gnaRequestConfigToRequestIdMap;
+#endif
     auto freeNnet = std::find_if(std::begin(nnets), std::end(nnets), [](decltype(nnets.front()) & item) {
         return std::get<1>(item) == -1;
     });
@@ -2148,8 +2241,6 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
         }
     }
 
-
-    auto nnet = std::get<0>(*freeNnet).get();
     auto idx = static_cast<uint32_t>(std::distance(std::begin(nnets), freeNnet));
 
     int inputNum = 0;
@@ -2216,23 +2307,45 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
 
     if (!gnadevice) {
         dnn.Propagate();
-        std::get<1>(*freeNnet) = 1;
+        if (freeNnet != nnets.end()) {
+            std::get<1>(*freeNnet) = 1;
+        }
     } else {
+#if GNA_LIB_VER == 1
+        auto nnet = std::get<0>(*freeNnet).get();
         std::get<1>(*freeNnet) = gnadevice->propagate(&nnet->obj, ptr_active_indices, num_active_indices);
+#else
+        const auto reqConfigId = std::get<0>(*freeNnet);
+        if (ptr_active_indices != nullptr && num_active_indices > 0 && activeLayerIndex != 0xffffffff)
+            gnadevice->setUpActiveList(reqConfigId, activeLayerIndex, ptr_active_indices, num_active_indices);
+        std::get<1>(*freeNnet) = gnadevice->propagate(reqConfigId);
+#endif
     }
+
 #ifdef PLOT
     dnn.BeginNewWrite();
     if (dnn.num_components() != 0) {
         dnn.WriteDnnText("Net_.txt", kDnnFloat);
         dnn.WriteInputAndOutputText();
     }
+#if GNA_LIB_VER == 1
     dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets.front())->obj);
+#else
+    dnn.WriteInputAndOutputTextGNA(std::get<0>(gnaModels.front())->obj);
 #endif
-    std::get<2>(*freeNnet) = result;
+#endif
+    if (freeNnet != nnets.end()) {
+        // TODO: GNA2: Substitute properly when using GNA 2.0 Library setting and CPU
+        std::get<2>(*freeNnet) = result;
+    }
     return idx;
 }
 
 void GNAPlugin::Wait(uint32_t request_idx) {
+#if GNA_LIB_VER == 2
+    auto& nnets = gnaRequestConfigToRequestIdMap;
+#endif
+    if (nnets.size() <= request_idx) return;    // TODO: GNA2: check whether necessary
     // already synced TODO: might be copy required ???
     if (std::get<1>(nnets[request_idx]) == -1) return;
 
@@ -2248,7 +2361,11 @@ void GNAPlugin::Wait(uint32_t request_idx) {
         dnn.WriteDnnText("Net_.txt", kDnnFloat);
         dnn.WriteInputAndOutputText();
     }
+#if GNA_LIB_VER == 1
     dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets[request_idx])->obj);
+#else
+    dnn.WriteInputAndOutputTextGNA(std::get<0>(gnaModels[request_idx])->obj);
+#endif
 #endif
     int output_idx = 0;
     for (auto && outputBlobIt : request) {
@@ -2270,7 +2387,6 @@ void GNAPlugin::Wait(uint32_t request_idx) {
 //                           dims[0],
 //                           dims[dims.size() - 1]);
 //        }
-
             auto& exportOutputDims = outputBlob->getTensorDesc().getDims();
             ExportScores(outputBlob->buffer(),
                          outputDesc.ptrs[request_idx],
@@ -2396,22 +2512,34 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     }
 
     auto header = GNAModelSerial::ReadHeader(inputStream);
-
+#if GNA_LIB_VER == 1
     gnadevice.reset(new GNADeviceHelper(gna_proc_type,
                                         gna_lib_async_threads_num,
                                         gna_openmp_multithreading));
+#else
+    gnadevice.reset(new GNADeviceHelper(pluginGna2AccMode,
+        pluginGna2DeviceConsistent,
+        gna_lib_async_threads_num,
+        gna_openmp_multithreading));
+#endif
     gnamem.reset(new gna_memory_type(make_polymorph<GNAAllocator>(*gnadevice.get()), PAGE_SIZE_BYTES));
 
     void *basePtr = nullptr;
     gnamem->reserve_ptr(&basePtr, header.gnaMemSize);
     gnamem->commit();
-
+#if GNA_LIB_VER == 2
+    gnaModels.push_back(std::make_tuple(make_shared<CPPWrapper<Gna2Model>>(header.layersCount)));
+#else
     nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(header.layersCount), -1, InferenceEngine::BlobMap()));
     std::get<0>(nnets.back())->obj.nGroup = header.nGroup;
+#endif
     GNAModelSerial::MemoryType  mt;
+#if GNA_LIB_VER == 2
+    auto serial = GNAModelSerial(&std::get<0>(gnaModels.back())->obj, mt);
+#else
     auto serial = GNAModelSerial(&std::get<0>(nnets.back())->obj, mt);
+#endif
     serial.Import(basePtr, header.gnaMemSize, inputStream);
-
 
     get_ptr_inputs_global("input").push_back(reinterpret_cast<float*>(reinterpret_cast<uint8_t *> (basePtr) + header.input.descriptor_offset));
     // TODO: import of multioutput network not supported
@@ -2419,13 +2547,25 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     auto &outputDesc = outputsDesc.front();
     outputDesc.ptrs.push_back(reinterpret_cast<float*>(reinterpret_cast<uint8_t *> (basePtr) + header.output.descriptor_offset));
 
+#if GNA_LIB_VER == 2
+    auto getOrientation = [](Gna2Operation & gnaOperation) {
+        return gnaOperation.Type == Gna2OperationTypeConvolution ?
+            kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
+    };
+#else
     auto getOrientation = [](intel_nnet_layer_t & layer) {
         return layer.nLayerKind == INTEL_CONVOLUTIONAL ?
            kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
     };
+#endif
 
+#if GNA_LIB_VER == 2
+    orientation_in["input"] = getOrientation(std::get<0>(gnaModels.back())->obj.Operations[0]);
+    outputDesc.orientation = getOrientation(std::get<0>(gnaModels.back())->obj.Operations[std::get<0>(gnaModels.back())->obj.NumberOfOperations - 1]);
+#else
     orientation_in["input"] = getOrientation(std::get<0>(nnets.back())->obj.pLayers[0]);
-    outputDesc.orientation = getOrientation(std::get<0>(nnets.back())->obj.pLayers[std::get<0>(nnets.back())->obj.nLayers-1]);
+    outputDesc.orientation = getOrientation(std::get<0>(nnets.back())->obj.pLayers[std::get<0>(nnets.back())->obj.nLayers - 1]);
+#endif
     outputDesc.num_bytes_per_element = header.output.element_size;
 
     auto outputDims = SizeVector({header.nGroup, header.output.elements_count / header.nGroup});
@@ -2462,7 +2602,9 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
 #ifdef PLOT
     dnn.WriteGraphWizModel("gna-blob.dot");
 #endif
-
+#if GNA_LIB_VER == 2
+    createRequestConfigsForGnaModels();
+#endif
     return nullptr;
 }
 
@@ -2480,10 +2622,15 @@ void GNAPlugin::Export(const std::string &fileName) {
     // TODO: nnet group parameter looks only used in application - so can we move this line into load network.
     auto inputDims = inputsDataMap.begin()->second->getTensorDesc().getDims();
     if (inputDims.size() == 2) {
+#if GNA_LIB_VER == 1
         std::get<0>(nnets.front())->obj.nGroup = inputDims[0];
+#endif
     }
-
+#if GNA_LIB_VER == 2
+    auto serial = GNAModelSerial(&std::get<0>(gnaModels.front())->obj,
+#else
     auto serial = GNAModelSerial(&std::get<0>(nnets.front())->obj,
+#endif
                    {inputScaleFactors.front(),
                     ptr_inputs_global_storage.front()[0],
                     2,
@@ -2584,22 +2731,67 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         dumpXNNPath = value;
     });
 
+    if_set(GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE_GENERATION), [&] {
+        dumpXNNGeneration = value;
+    });
+
     if_set(GNA_CONFIG_KEY(DEVICE_MODE), [&] {
+#if GNA_LIB_VER == 1
         static caseless_unordered_map <std::string, uint32_t> supported_values = {
                 {GNAConfigParams::GNA_AUTO, GNA_AUTO},
                 {GNAConfigParams::GNA_HW, GNA_HARDWARE},
                 {GNAConfigParams::GNA_SW, GNA_SOFTWARE},
                 {GNAConfigParams::GNA_SW_EXACT, GNA_SOFTWARE & GNA_HARDWARE}
         };
+        static std::vector <std::string> supported_values_on_gna2 = {
+            GNAConfigParams::GNA_GEN,
+            GNAConfigParams::GNA_GEN_EXACT,
+            GNAConfigParams::GNA_SSE,
+            GNAConfigParams::GNA_SSE_EXACT,
+            GNAConfigParams::GNA_AVX1,
+            GNAConfigParams::GNA_AVX1_EXACT,
+            GNAConfigParams::GNA_AVX2,
+            GNAConfigParams::GNA_AVX2_EXACT
+        };
+#else
+        static caseless_unordered_map <std::string, std::pair<Gna2AccelerationMode, Gna2DeviceVersion> > supported_values = {
+            {GNAConfigParams::GNA_AUTO, {Gna2AccelerationModeAuto, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_HW, {Gna2AccelerationModeHardware, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_SW, {Gna2AccelerationModeSoftware, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_SW_EXACT, {Gna2AccelerationModeSoftware, Gna2DeviceVersion1_0}},
+            {GNAConfigParams::GNA_GEN, {Gna2AccelerationModeGeneric, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_GEN_EXACT, {Gna2AccelerationModeGeneric, Gna2DeviceVersion1_0}},
+            {GNAConfigParams::GNA_SSE, {Gna2AccelerationModeSse4x2, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_SSE_EXACT, {Gna2AccelerationModeSse4x2, Gna2DeviceVersion1_0}},
+            {GNAConfigParams::GNA_AVX1, {Gna2AccelerationModeAvx1, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_AVX1_EXACT, {Gna2AccelerationModeAvx1, Gna2DeviceVersion1_0}},
+            {GNAConfigParams::GNA_AVX2, {Gna2AccelerationModeAvx2, Gna2DeviceVersionSoftwareEmulation}},
+            {GNAConfigParams::GNA_AVX2_EXACT, {Gna2AccelerationModeAvx2, Gna2DeviceVersion1_0}},
+        };
+#endif
         auto procType = supported_values.find(value);
         if (procType == supported_values.end()) {
             if (value == GNA_CONFIG_VALUE(SW_FP32)) {
                 sw_fp32 = true;
             } else {
+#if GNA_LIB_VER == 1
+                auto is_gna2_mode = std::find(
+                        supported_values_on_gna2.begin(),
+                        supported_values_on_gna2.end(),
+                        value);
+                if (is_gna2_mode != supported_values_on_gna2.end()) {
+                    THROW_GNA_EXCEPTION << "This GNA device mode require GNA2 library: " << value;
+                }
+#endif
                 THROW_GNA_EXCEPTION << "GNA device mode unsupported: " << value;
             }
         } else {
+#if GNA_LIB_VER == 1
             gna_proc_type = static_cast<intel_gna_proc_t>(procType->second);
+#else
+            pluginGna2AccMode = procType->second.first;
+            pluginGna2DeviceConsistent = procType->second.second;
+#endif
         }
     });
 

@@ -28,6 +28,6 @@ class GNAAllocator {
         return result;
     }
     void deallocate(uint8_t *p, std::size_t n) {
-        _device.get().free();
+        _device.get().free(p);
     }
 };
