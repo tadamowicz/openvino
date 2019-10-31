@@ -72,7 +72,12 @@ class GNAInferRequest : public InferenceEngine::AsyncInferRequestInternal {
     }
 
     InferenceEngine::StatusCode Wait(int64_t millis_timeout) override {
-        if (inferRequestIdx == -1) return InferenceEngine::INFER_NOT_STARTED;
+        if (inferRequestIdx == -1) {
+            return InferenceEngine::INFER_NOT_STARTED;
+        } else if (millis_timeout < -1) {
+            THROW_IE_EXCEPTION << PARAMETER_MISMATCH_str;
+        }
+
         plg->Wait(inferRequestIdx);
         return InferenceEngine::OK;
     }
