@@ -167,9 +167,6 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
             auto prev = CNNNetPrevLayer(l, i);
             if (LayerInfo(prev).has32BOutput()) {
                 prevLayers.push_back(prev);
-            } else if (LayerInfo(prev).isInput()) {
-                // TODO: insertion of identity layers and concat for a while
-                prevLayers.push_back(prev);
             }
         }
     } else {
@@ -568,19 +565,36 @@ void InsertConcatAligningFilterPass::run() {
         uint32_t offset = 0;
         auto concatLayer = info.as<ConcatLayer*>();
 
-        for (auto && input : concatLayer->insData) {
-            auto concatInput = input.lock();
-            if (!concatInput) {
-                THROW_GNA_EXCEPTION << "cannot get insdata for layer: " << l->name;
-            }
+        for (auto input_idx = 0; input_idx != concatLayer->insData.size(); input_idx++) {
+            auto getLayerByIndex = [&concatLayer](int idx) {
+                auto input = concatLayer->insData[idx];
+                auto lockedInput = input.lock();
+                if (!lockedInput) {
+                    THROW_GNA_EXCEPTION << "cannot get insdata : "<< idx << " for layer: " << concatLayer->name;
+                }
+                return lockedInput;
+            };
+
+            auto concatInput = getLayerByIndex(input_idx);
             auto dims = concatInput->getDims();
             auto outputSize = details::product(++dims.begin(), dims.end()) * bytesPerConcatElement;
 
+            auto useAlignFilterIf = [&concatLayer, &getLayerByIndex](int concat_input_idx) {
+                if (concatLayer->insData.size() <= concat_input_idx) return false;
+
+                auto nextInput = getLayerByIndex(concat_input_idx)->getCreatorLayer().lock();
+
+                if (LayerInfo(nextInput).isInput()) return false;
+
+                return true;
+            };
+
             // correcting offset by copy layer insertion. This can be improved by collapsing copy and affine or diagonal later-on
-            if (ALIGN64(offset) != offset || ALIGN64(outputSize) != outputSize) {
+            // if next concat inputs requires align filter - then current input also requires either copy or align filter
+            if (ALIGN64(offset) != offset || (ALIGN64(outputSize) != outputSize) && useAlignFilterIf(input_idx + 1)) {
                 auto prevLayer = concatInput->getCreatorLayer().lock();
                 // input layer parameters are copied not using GNA-primitives - so nothing to allign here.
-               //  if (LayerInfo(prevLayer).isInput()) continue;
+                if (!useAlignFilterIf(input_idx)) continue;
 
                 gnalog() << "Inserted Concat Aligning Layer between: " << prevLayer->name << " and " << l->name << std::endl;
 

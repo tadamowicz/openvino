@@ -58,9 +58,7 @@ static int & getDumpFolderId() {
 }
 
 static std::string getDumpFilePrefixGNA() {
-    const char* prefix = "gna_dump_";
-    const std::string id = std::to_string(getDumpFolderId() - 1);
-    return std::string("./")+ prefix + id +"_";
+    return std::string("./gna_layers/")+std::to_string(getDumpFolderId() - 1)+"/";
 }
 
 static std::string getDumpFolderName() {

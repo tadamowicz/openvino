@@ -323,6 +323,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
          */
         size_t reserved_size = 0;
         bool output_allocation_flag = false;
+        bool input_allocated = false;
         /**
          * gna memory of this offset from gna_ptr
          */
@@ -472,7 +473,8 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                       void *pVoid,
                       size_t num_data_bytes_in,
                       int32_t offset = 0,
-                      int idx = 0);
+                      int idx = 0,
+                      int inputAlignment = 64);
 
     void ImportFrames(void *ptr_dst,
                      const void *ptr_src,

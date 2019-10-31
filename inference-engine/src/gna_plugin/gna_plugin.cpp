@@ -886,8 +886,16 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
         IE_ASSERT(it != concatLayerInput->insData.size());
         auto layerInfo = LayerInfo(concatLayerInput->insData[it].lock()->getCreatorLayer().lock());
         if (layerInfo.isInput()) {
+            auto insDataSize = concatLayerInfo.reserved_size-inputLayer.offset;
+            if (concatLayerInfo.input_allocated) {
+                // for concat input allocated only once, so lets mark this specific input layer also as allocated
+                // we will bind it to offset further in connectInput
+                bytes_alllocated_for_input[((InferenceEngine::CNNLayerPtr)layerInfo)->name] = concatLayerInfo.reserved_size;
+            }
+
             connectInput(layer, &concatLayerInfo.gna_ptr,
-                                concatLayerInfo.reserved_size-inputLayer.offset, -static_cast<int32_t>(inputLayer.offset), idx);
+                         insDataSize, -static_cast<int32_t>(inputLayer.offset), idx);
+            concatLayerInfo.input_allocated = true;
         }
         ++idx;
     }
@@ -1925,8 +1933,9 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
             connectOutput(inputLayer, &get_ptr_inputs_global(inputLayer->name).front(), 0);
         }
     }
+    // TODO: graph might be static - should we support that
     if (dnnComponentsForLayer.empty()) {
-        THROW_GNA_EXCEPTION << "No outputs found in dnn components structure";
+        THROW_GNA_EXCEPTION << "No GNA primitives created based on topology. This might indicate trivial topology";
     }
 
     /// setting-up output layers information
@@ -3078,7 +3087,7 @@ std::vector<void *>& GNAPlugin::get_ptr_inputs_global(std::string name) {
     return *ptr_inputs_global_id[name];
 }
 
-GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *ptr, size_t num_data_bytes_in, int32_t offset, int idx) {
+GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *ptr, size_t num_data_bytes_in, int32_t offset, int idx, int inputAlignment) {
     // selecting particular input layers
     auto prevLayer = CNNNetPrevLayer(layer, idx);
 
