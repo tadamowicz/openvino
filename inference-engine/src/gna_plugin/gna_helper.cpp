@@ -119,7 +119,7 @@ void PrintMatrixInt32(char *ptr_name, int32_t *ptr_matrix, int num_rows, int num
 }
 
 void PrintMatrixFloat32(char *ptr_name, float *ptr_matrix, int num_rows, int num_cols, int lda) {
-#if (_WIN32 || _WIN64) && (_MSC_VER < 1900)
+#if (defined _WIN32 || defined _WIN64) && (_MSC_VER < 1900)
     _set_output_format(_TWO_DIGIT_EXPONENT);
 #endif
     printf("%s:  %dx%d lda %d\n", ptr_name, num_rows, num_cols, lda);
