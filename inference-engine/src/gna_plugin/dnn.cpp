@@ -1436,6 +1436,7 @@ void AmIntelDnn::WriteDnnText(const char *filename, intel_dnn_number_type_t numb
                 out_file_name << "-" << intel_dnn_activation_name[component[i].op.pwl.func_id.type];
             }
             std::ofstream out_file((out_file_name.str() + ".txt").c_str(), std::ios::out);
+            if (!out_file) return;
 #endif
 
             uint32_t num_rows_in = component[i].num_rows_in;
@@ -2549,16 +2550,22 @@ void AmIntelDnn::WriteInputAndOutputTextGNA(intel_nnet_type_t * nnet) {
                           << getLayerType(component[i].nLayerKind)
                           << "-" << nnet->pLayers[i].nInputRows
                           << "-" << nnet->pLayers[i].nOutputRows;
+
             auto dumpFilePrefixGNA = getDumpFilePrefixGNA();
             auto inputfileName = dumpFilePrefixGNA + out_file_name.str() + "_input.txt";
             auto outFileName = dumpFilePrefixGNA + out_file_name.str() + "_output.txt";
             auto pwlFileName = dumpFilePrefixGNA + out_file_name.str() + "_pwl.txt";
             auto refOutputFileName = getRefFolderName() + out_file_name.str() + "_output.txt";
 
+
+
             std::ofstream out_file(outFileName.c_str(), std::ios::out);
             std::ofstream pwl_file(pwlFileName.c_str(), std::ios::out);
             std::ifstream ref_out_file(refOutputFileName.c_str(), std::ios::in);
             std::ofstream in_file(inputfileName.c_str(), std::ios::out);
+            if (!out_file || !in_file) {
+                return;
+            }
 
             float  summOfDiff = 0.f;
             float  summOfSqDiff = 0.f;
@@ -2653,6 +2660,9 @@ void AmIntelDnn::WriteInputAndOutputText() {
         std::ofstream out_file(outFileName.c_str(), std::ios::out);
         std::ifstream ref_out_file(refOutputFileName.c_str(), std::ios::in);
         std::ofstream in_file(inputfileName.c_str(), std::ios::out);
+
+        // assume that ref only mode not used
+        if (!out_file.good() || !in_file.good()) return;
 
         float  summOfDiff = 0.f;
         float  summOfSqDiff = 0.f;

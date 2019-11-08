@@ -2335,13 +2335,7 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
     dnn.BeginNewWrite();
     if (dnn.num_components() != 0) {
         dnn.WriteDnnText("Net_.txt", kDnnFloat);
-        dnn.WriteInputAndOutputText();
     }
-#if GNA_LIB_VER == 1
-    dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets.front())->obj);
-#else
-    dnn.WriteInputAndOutputTextGNA(std::get<0>(gnaModels.front())->obj);
-#endif
 #endif
     if (freeNnet != nnets.end()) {
         // TODO: GNA2: Substitute properly when using GNA 2.0 Library setting and CPU
@@ -2365,9 +2359,7 @@ void GNAPlugin::Wait(uint32_t request_idx) {
     std::get<1>(nnets[request_idx]) = -1;
     auto &request = std::get<2>(nnets[request_idx]);
 #ifdef PLOT
-    dnn.BeginNewWrite();
     if (dnn.num_components() != 0) {
-        dnn.WriteDnnText("Net_.txt", kDnnFloat);
         dnn.WriteInputAndOutputText();
     }
 #if GNA_LIB_VER == 1
