@@ -5,6 +5,7 @@
 #pragma once
 
 #include "cpp_interfaces/base/ie_plugin_base.hpp"
+#include "gna_plugin_log.hpp"
 #include "dnn.h"
 #include "gna_memory.hpp"
 #include "gna_device.hpp"
@@ -407,18 +408,27 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
     void fillConcatConnections(InferenceEngine::CNNLayerPtr layer);
     void fillSplitConnections(InferenceEngine::CNNLayerPtr layer);
+
     /**
      * maps layer name to dnn.component, in topological sort prev nodes will be initialized
      */
-    using DnnComponentsForLayer = std::list<std::pair<std::string, intel_dnn_component_t>>;
-    DnnComponentsForLayer dnnComponentsForLayer;
+    struct DnnComponents {
+        using storage_type = std::list<std::pair<std::string, intel_dnn_component_t>>;
+        storage_type components;
+        /**
+         * @brief initializes new empty intel_dnn_component_t object
+         * @param layerName - layer name in IR
+         * @param layerMetaType - usually either gna of original layer type
+         * @return
+         */
+        intel_dnn_component_t & addComponent(const std::string layerName, const std::string layerMetaType);
+        /**
+         * @brief returns corresponding dnn layer for topology layer
+         * @return
+         */
+        intel_dnn_component_t * findComponent(InferenceEngine::CNNLayerPtr layer);
+    } dnnComponents;
 
-    /**
-     * @brief returns corresponding dnn layer for topology layer
-     * @param __layer
-     * @return
-     */
-    intel_dnn_component_t * findDnnLayer(InferenceEngine::CNNLayerPtr __layer);
 
     using allocator_type = PolymorphAllocator<uint8_t>;
     using gna_memory_type = GNAMemory<allocator_type>;
@@ -473,8 +483,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
                       void *pVoid,
                       size_t num_data_bytes_in,
                       int32_t offset = 0,
-                      int idx = 0,
-                      int inputAlignment = 64);
+                      int idx = 0);
 
     void ImportFrames(void *ptr_dst,
                      const void *ptr_src,

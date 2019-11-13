@@ -538,12 +538,8 @@ void GNAPlugin::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) {
     // TODO: questionable why for biases that are not in IR we inventing precision
     auto biasPrecision = convolution._biases ? convolution._biases->getTensorDesc().getPrecision() : outputs->getPrecision();
 
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "convolution");
 
-#ifdef PLOT
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " convolution_" << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
     // have to pad input to let last kernel meets it's corresponding input
     auto num_inputs = num_feature_maps * num_feature_map_columns * num_feature_map_rows + num_conv_kernel_padding;
     auto num_input_padding = ALIGN(num_inputs, 8)-  num_inputs;
@@ -664,8 +660,8 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
     void *ptr_weights;
     void *ptr_biases;
 
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "power");
+
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in,
                             num_columns_in,
@@ -682,10 +678,6 @@ void GNAPlugin::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
                             ptr_weights,
                             ptr_biases,
                             true);
-
-#ifdef PLOT
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
 
     size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
         * outputs->getPrecision().size();
@@ -753,12 +745,8 @@ void GNAPlugin::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     void *ptr_inputs;
     void *ptr_outputs;
 
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "pooling");
 
-#ifdef PLOT
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " pooling_" <<  dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
     switch (pooling._type) {
         case PoolingLayer::MAX: break;
         // we are loosing precision here
@@ -808,12 +796,7 @@ void GNAPlugin::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
     void *ptr_outputs;
     auto orientation = (num_cnn_rows_out > 0) ? kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
 
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
-
-#ifdef PLOT
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " kDnnCopyOp_" << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "copy");
 
     dnn.InitCopyComponent(currentComponent,
                           orientation,
@@ -961,12 +944,7 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         void *ptr_weights;
         void *ptr_biases;
 
-        dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-        auto &currentComponent = dnnComponentsForLayer.back().second;
-
-#ifdef PLOT
-        std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " Affine_" << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
+        auto &currentComponent = dnnComponents.addComponent(layer->name, "crop");
 
         dnn.InitAffineComponent(currentComponent,
                                 num_rows_in + num_padding,
@@ -1047,8 +1025,7 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     void *ptr_weights;
     void *ptr_biases;
 
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "diagonal");
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
                             num_columns_in,
@@ -1065,10 +1042,6 @@ void GNAPlugin::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
                             ptr_weights,
                             ptr_biases,
                             true);
-
-#ifdef PLOT
-    cout << "IR layer : " << std::left << std::setw(20) << layer->name << " diagonal_"<< dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
 
     size_t num_data_bytes_out =
         InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims())) * outputs->getPrecision().size();
@@ -1143,13 +1116,7 @@ void GNAPlugin::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool isDiag)
         useBiasConnection = true;
     }
 
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
-
-#ifdef PLOT
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << (isDiag ? " diagonal_" : " affine_")
-              << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
+    auto &currentComponent = dnnComponents.addComponent(layer->name, (isDiag ? "diagonal" : "affine"));
 
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
@@ -1316,11 +1283,7 @@ void GNAPlugin::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
     auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->getTensorDesc().getPrecision() : outputs->getPrecision();
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
-#ifdef  PLOT
-    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "affine");
 
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
@@ -1408,11 +1371,7 @@ void GNAPlugin::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
     auto biasPrecision = filterLayer->_biases ? filterLayer->_biases->getTensorDesc().getPrecision() : outputs->getPrecision();
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
-#ifdef  PLOT
-    gnalog() << "IR layer : " << std::left << std::setw(20) << layer->name << (" affine_") << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
+    auto &currentComponent = dnnComponents.addComponent(layer->name, "affine");
 
     dnn.InitAffineComponent(currentComponent,
                             num_rows_in + num_padding,
@@ -1543,17 +1502,31 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         activation_type.negative_slope = 0.0f;
     }
 
-    // TODO: need to take graph dependency instead of linear
-    auto &prevComponent = dnnComponentsForLayer.back().second;
-    dnnComponentsForLayer.emplace_back(layer->name, intel_dnn_component_t());
-    auto &currentComponent = dnnComponentsForLayer.back().second;
+    string actName = "unknown";
+
+#ifdef PLOT
+#define GET_ACTIVATION_NAME(name)\
+case name:\
+    actName = #name;\
+    break
+    switch (activation_type) {
+        GET_ACTIVATION_NAME(kActSigmoid);
+        GET_ACTIVATION_NAME(kActTanh);
+        GET_ACTIVATION_NAME(kActRelu);
+        GET_ACTIVATION_NAME(kActLeakyRelu);
+        GET_ACTIVATION_NAME(kActKaldiLstmClipping);
+        GET_ACTIVATION_NAME(kActIdentity);
+        default: break;
+    }
+#endif
+
+    auto &currentComponent = dnnComponents.addComponent(layer->name, actName);
 
     intel_pwl_segment_t *ptr_pwl_segments_target = nullptr;
 
     if (!inputs->getPrecision().is_float()) {
         // TODO: generalize activation function code
         // now that scale factors are known, create PWL approximations to activation functions
-        float input_scale_factor = dnn.OutputScaleFactor(prevComponent);
         if (uniformPwlDesign) {
             switch (activation_type) {
                 case kActSigmoid:ptr_pwl_segments.resize(SIGMOID_NUM_SEGMENTS);
@@ -1573,12 +1546,12 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
             PwlDesign16(activation_type,
                         &*ptr_pwl_segments.begin(),
                         static_cast<uint32_t>(ptr_pwl_segments.size()),
-                        input_scale_factor,
+                        input_pwl_scale_factor,
                         output_pwl_scale_factor);
         } else {
             PwlDesignOpt16(activation_type,
                            ptr_pwl_segments,
-                           input_scale_factor,
+                           input_pwl_scale_factor,
                            output_pwl_scale_factor);
         }
         ptr_pwl_segments_target = reinterpret_cast<intel_pwl_segment_t *>(&ptr_pwl_segments_target);
@@ -1597,23 +1570,6 @@ void GNAPlugin::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
                                      ptr_inputs,
                                      ptr_outputs,
                                      ptr_pwl_segments_target);
-#ifdef PLOT
-#define GET_ACTIVATION_NAME(name)\
-case name:\
-    actName = #name;\
-    break;
-    string actName = "unknown";
-    switch (activation_type) {
-        GET_ACTIVATION_NAME(kActSigmoid);
-        GET_ACTIVATION_NAME(kActTanh);
-        GET_ACTIVATION_NAME(kActRelu);
-        GET_ACTIVATION_NAME(kActLeakyRelu);
-        GET_ACTIVATION_NAME(kActKaldiLstmClipping);
-        GET_ACTIVATION_NAME(kActIdentity);
-        default: break;
-    }
-    std::cout << "IR layer : " << std::left << std::setw(20) << layer->name << " " << actName << "_" << dnnComponentsForLayer.size() - 1 << std::endl;
-#endif
 
     connectInput(layer, ptr_inputs, num_data_bytes_in);
     connectOutput(layer, ptr_outputs, num_data_bytes_out);
@@ -1934,7 +1890,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         }
     }
     // TODO: graph might be static - should we support that
-    if (dnnComponentsForLayer.empty()) {
+    if (dnnComponents.components.empty()) {
         THROW_GNA_EXCEPTION << "No GNA primitives created based on topology. This might indicate trivial topology";
     }
 
@@ -1970,15 +1926,15 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
         CNNNetDFS(outLayer, [this, &outPort, portId, &stopSearching, &initOutput](CNNLayerPtr layer) {
             auto irLayerAvatar = std::find_if(
-                dnnComponentsForLayer.begin(),
-                dnnComponentsForLayer.end(),
+                dnnComponents.components.begin(),
+                dnnComponents.components.end(),
                 [&layer](std::pair<std::string, intel_dnn_component_t> & value) {
                     return value.first == layer->name;
             });
 
             gnalog() << "[UFS] from : "<< outPort.first <<" reached: " << layer->name << "\n";
 
-            if (irLayerAvatar != dnnComponentsForLayer.end()) {
+            if (irLayerAvatar != dnnComponents.components.end()) {
                 initOutput(portId, irLayerAvatar->second, layer);
                 stopSearching = true;
             }
@@ -2013,7 +1969,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
              1);
 
     // TODO: this copy unneed infact we can directly create gna structs from list
-    for (auto &element : dnnComponentsForLayer) {
+    for (auto &element : dnnComponents.components) {
         dnn.component.push_back(element.second);
     }
 
@@ -2106,7 +2062,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
                     }
                 }
 
-                auto dnnLayer = findDnnLayer(layer);
+                auto dnnLayer = dnnComponents.findComponent(layer);
                 string inputName = prevLayer->name;
                 if (skippedLayers.count(prevLayer->name)) {
                     inputName = skippedLayers[prevLayer->name];
@@ -2911,7 +2867,7 @@ intel_dnn_component_t * GNAPlugin::find_first_unused_input(InferenceEngine::CNNL
 
     auto prev_layer = current->insData.front().lock()->getCreatorLayer().lock();
 
-    return findDnnLayer(prev_layer);
+    return dnnComponents.findComponent(prev_layer);
 }
 
 void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, size_t num_data_bytes_out) {
@@ -3057,14 +3013,24 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
     }
 }
 
-intel_dnn_component_t * GNAPlugin::findDnnLayer(CNNLayerPtr __layer) {
-    auto component = std::find_if(begin(dnnComponentsForLayer),
-                        end(dnnComponentsForLayer),
-                        [&](DnnComponentsForLayer::value_type &comp) {
+intel_dnn_component_t & GNAPlugin::DnnComponents::addComponent(const std::string layerName, const std::string layerMetaType) {
+    components.emplace_back(layerName, intel_dnn_component_t());
+    auto &currentComponent = components.back().second;
+#ifdef PLOT
+    currentComponent.orignal_layer_name = components.back().first.c_str();
+    std::cout << "IR layer : " << std::left << std::setw(20) << layerName << " " << layerMetaType << "_" << components.size() - 1 << std::endl;
+#endif
+    return currentComponent;
+}
+
+intel_dnn_component_t * GNAPlugin::DnnComponents::findComponent(CNNLayerPtr __layer) {
+    auto component = std::find_if(begin(components),
+                        end(components),
+                        [&](storage_type ::value_type &comp) {
                             return comp.first == __layer->name;
                         });
     // check for generic prev layer
-    if (component != dnnComponentsForLayer.end()) {
+    if (component != components.end()) {
         return &component->second;
     }
 
@@ -3079,7 +3045,7 @@ std::vector<void *>& GNAPlugin::get_ptr_inputs_global(std::string name) {
     return *ptr_inputs_global_id[name];
 }
 
-GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *ptr, size_t num_data_bytes_in, int32_t offset, int idx, int inputAlignment) {
+GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *ptr, size_t num_data_bytes_in, int32_t offset, int idx) {
     // selecting particular input layers
     auto prevLayer = CNNNetPrevLayer(layer, idx);
 
@@ -3165,7 +3131,7 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
             return CNNNetPrevLayer(prevLayer);
         }
     }
-    auto prevDnnLayer = findDnnLayer(prevLayer);
+    auto prevDnnLayer = dnnComponents.findComponent(prevLayer);
 
     // check for generic prev layer
     if (prevDnnLayer != nullptr) {

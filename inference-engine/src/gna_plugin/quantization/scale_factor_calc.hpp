@@ -14,6 +14,11 @@
 #include "ie_layers.h"
 #include "gna_plugin_log.hpp"
 
+extern pwl_gna_slope_scale_t gna_slope(const double slope,
+                                       const double in_scale,
+                                       const double out_scale);
+
+
 namespace GNAPluginNS {
 namespace details {
 using namespace InferenceEngine;
@@ -59,18 +64,52 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
     static bool fp32eq(float p1, float p2) {
         return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
     }
+
     float getActivationScale(GNAPluginNS::LayerInfo const&  layer, QuantizedLayerParams const* quantizedParams) {
-            // todo: calculate proper scale factor where we need to expand it a bit to be safe to stay in int16 weights
-            // set the initial value
-            float result = 1.0f;
-            result = (layer.isIdentity()) ? identity_scale_factor : activation_scale_factor;
-            // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
-            if (layer.isRelu() &&
-                    static_cast<uint64_t>(result * quantizedParams->_src_quant.scale)
-                                                                > std::numeric_limits<int32_t>::max()-1) {
-                result = (result * 0.5);
+        // todo: calculate proper scale factor where we need to expand it a bit to be safe to stay in int16 weights
+        // set the initial value
+        float result = activation_scale_factor;
+        if (layer.isIdentity()) {
+// #define accurate_identity_scale_factor
+#ifdef accurate_identity_scale_factor
+            // searching more accurate scale factor for identity
+            const double min_range = 1024.0;
+            const double max_range = 2049.0;
+
+            // gna encoded scale factor - the max this is the more accurate PWL approximation
+            double optimalK = 0.0f;
+            result = min_range;
+
+            for (int slope_scale_index = 1; slope_scale_index != 5; slope_scale_index ++) {
+                auto slope_scale = static_cast<double>(static_cast<uint64_t>(1) << (8 * slope_scale_index));
+                auto mink = min_range * slope_scale / quantizedParams->_src_quant.scale;
+                auto maxk = max_range * slope_scale / quantizedParams->_src_quant.scale;
+
+                if (mink < std::numeric_limits<int16_t>::max()) {
+                    auto localMaxK = std::min(static_cast<double>(std::numeric_limits<int16_t>::max()), maxk);
+                    if (localMaxK > optimalK) {
+                        result = localMaxK / slope_scale *  quantizedParams->_src_quant.scale;
+                        optimalK = localMaxK;
+                    }
+                }
             }
-            return result;
+#else
+            // GNA scale factor encoding might poor represent target slop scale, we are probing 2 values
+            auto s = gna_slope(1.0, quantizedParams->_src_quant.scale, identity_scale_factor);
+            auto scale_default = s.slope * s.slope_scale;
+            // probing one more quite good approximation for identity
+            s = gna_slope(1.0, quantizedParams->_src_quant.scale, identity_scale_factor / 2);
+            auto scale_extra = s.slope * s.slope_scale;
+            result = fabs(scale_extra) > fabs(scale_default) ?  identity_scale_factor / 2 : identity_scale_factor;
+
+#endif
+        } else if (layer.isRelu() &&
+                static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.scale)
+                                                            > std::numeric_limits<int32_t>::max()-1) {
+            // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
+            result = (activation_scale_factor * 0.5);
+        }
+        return result;
     }
 
  public :

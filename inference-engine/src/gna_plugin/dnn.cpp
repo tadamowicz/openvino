@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-extern bool global_debug;
-
 #include <cstdlib>
 #include <cstdio>
 #include <cmath>
@@ -21,6 +19,7 @@ extern bool global_debug;
 #ifndef _NO_MKL_
 #include <mkl_dnn.h>
 #endif
+#include "gna_plugin_log.hpp"
 #include "dnn.h"
 #ifdef INTEGER_REF
 #include "convnet.h"
@@ -32,7 +31,6 @@ extern bool global_debug;
 #endif
 #include "pwl.h"
 #include "util.h"
-#include "gna_plugin_log.hpp"
 #include "ie_memcpy.h"
 #include "gna_lib_ver_selector.hpp"
 
@@ -92,9 +90,6 @@ void AmIntelDnn::Init(void *ptr_memory,
     ptr_sumgroup_sizes = nullptr;
     num_sumgroup_sizes = 0;
     ptr_priors = nullptr;
-
-
-    //  component.clear();
 }
 
 void AmIntelDnn::InitActiveList(uint32_t *ptr_active_list) {
@@ -1250,8 +1245,14 @@ void AmIntelDnn::WriteGraphWizModel(const char *filename) {
         }
 
         graph << ", label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n"
-            "  <TR><TD  colspan=\"2\">" <<  l << "</TD></TR>\n"
-            "  <TR><TD  colspan=\"2\">" <<  components[k].num_rows_in << "x" <<  components[k].num_rows_out<< "</TD></TR>\n";
+            "  <TR><TD  colspan=\"2\">" <<  l << "</TD></TR>\n";
+
+#ifdef PLOT
+        if (components[k].orignal_layer_name != nullptr) {
+            graph << "  <TR><TD> IR </TD><TD>" << components[k].orignal_layer_name << "</TD></TR>\n";
+        }
+#endif
+        graph << "  <TR><TD> dims</TD><TD>" <<  components[k].num_rows_in << "x" <<  components[k].num_rows_out<< "</TD></TR>\n";
         if (IS_AFFINE(k)) {
             graph << "  <TR><TD> wscale</TD><TD>" <<  components[k].op.affine.weight_scale_factor<< "</TD></TR>\n";
             graph << "  <TR><TD> wbit</TD><TD>" <<  components[k].op.affine.num_bytes_per_weight<< "</TD></TR>\n";
