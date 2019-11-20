@@ -34,6 +34,7 @@
 #include <ie_util_internal.hpp>
 #include "details/caseless.hpp"
 #include <gna-api-types-xnn.h>
+#include <layers/gna_layer_type.hpp>
 #include "gna-api.h"
 #include "gna-api-dumper.h"
 #include "dnn.h"
@@ -50,6 +51,13 @@
 #include "gna_pass_manager.hpp"
 #include "gna_fused_iterator.hpp"
 #include "gna_lib_ver_selector.hpp"
+#include "layers/gna_concat_layer.hpp"
+#include "layers/gna_split_layer.hpp"
+#include "layers/gna_memory_layer.hpp"
+#include "layers/gna_crop_layer.hpp"
+#include "layers/layers_builder.hpp"
+#include "dnn_components.hpp"
+#include "connection_details.hpp"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
@@ -389,7 +397,7 @@ void GNAPlugin::fillMemoryConnections(std::unordered_map<std::string,
 
 void GNAPlugin::fillConcatConnections(InferenceEngine::CNNLayerPtr layer) {
     // creating connection for each layer outputs as form of extramap
-    GNAPlugin::GNAConcatLayer layerInfoItem(layer);
+    GNAPluginNS::GNAConcatLayer layerInfoItem(layer);
     size_t concat_size = 0;
     std::string& id = layer->name;
 
@@ -404,7 +412,7 @@ void GNAPlugin::fillConcatConnections(InferenceEngine::CNNLayerPtr layer) {
             THROW_GNA_EXCEPTION << "Input layer for concat is unexpectedly absent";
         }
         layerInfoItem.concatInputLayers.emplace_back(
-                GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo({ptrConcatLayerInput->name, concat_size}));
+                GNAPluginNS::GNAConcatLayer::ConcatConnectedLayerInfo({ptrConcatLayerInput->name, concat_size}));
 
         size_t layer_size =
                      InferenceEngine::details::product(begin(dataInput->getDims()),
@@ -417,7 +425,7 @@ void GNAPlugin::fillConcatConnections(InferenceEngine::CNNLayerPtr layer) {
 
 void GNAPlugin::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) {
     // creating connection for each layer inputs as form of extramap
-    GNAPlugin::GNASplitLayer layerInfoItem(layer);
+    GNAPluginNS::GNASplitLayer layerInfoItem(layer);
     size_t split_size = 0;
     std::string& id = layer->name;
     auto dataInput = layer->insData.begin()->lock();
@@ -902,7 +910,7 @@ void GNAPlugin::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
     if (ALIGN64(cropOffset) == cropOffset) {
         // leave crop as it is
-        GNAPlugin::GNACropLayer cropLayerInfoItem(layer);
+        GNAPluginNS::GNACropLayer cropLayerInfoItem(layer);
         std::string& id = layer->name;
         crop_connection.emplace(id, cropLayerInfoItem);
         auto cropLayerInfo = crop_connection.find(cropLayer->name);
@@ -1592,21 +1600,6 @@ void GNAPlugin::PermutePrimitive(InferenceEngine::CNNLayerPtr layer) {
     }
 }
 
-class LayersBuilder {
-    using CreatorFnc = std::function<void(GNAPlugin*, CNNLayerPtr)>;
-
- public:
-    LayersBuilder(const std::vector<std::string> &types, CreatorFnc callback) {
-        for (auto && str : types) {
-            getStorage()[str] = callback;
-        }
-    }
-    static caseless_unordered_map<std::string, CreatorFnc> &getStorage() {
-        static caseless_unordered_map<std::string, CreatorFnc> LayerBuilder;
-        return LayerBuilder;
-    }
-};
-
 #define CREATE(name) [](GNAPlugin *p, CNNLayerPtr l) {p->name(l);}
 void SKIP(GNAPlugin*, CNNLayerPtr) {}
 
@@ -1644,39 +1637,6 @@ void GNAPlugin::CreateLayerPrimitive(CNNLayerPtr layer) {
 
 GNAPlugin::GNAPlugin(const std::map<std::string, std::string>& configMap) {
     SetConfig(configMap);
-}
-
-GNAPluginNS::GNAPlugin::LayerType GNAPlugin::LayerTypeFromStr(const std::string &str) const {
-    static const caseless_map<std::string, GNAPlugin::LayerType> LayerNameToType = {
-        { "Input" , Input },
-        { "Convolution" , Convolution },
-        { "ReLU" , ReLU },
-        { "Sigmoid" , Sigmoid },
-        { "TanH" , TanH },
-        { "Pooling" , Pooling },
-        { "FullyConnected" , FullyConnected },
-        { "InnerProduct" , InnerProduct},
-        { "Split" , Split },
-        { "Slice" , Slice },
-        { "Eltwise" , Eltwise },
-        { "Const" , Const },
-        { "Reshape" , Reshape },
-        { "ScaleShift" , ScaleShift },
-        { "Clamp" , Clamp },
-        { "Concat" , Concat },
-        { "Copy", Copy },
-        { "Permute" , Permute },
-        { "Power" , Power},
-        { "Memory" , Memory },
-        { "Crop" , Crop },
-        { "LSTMCell", LSTMCell },
-        { "TensorIterator", TensorIterator }
-    };
-    auto it = LayerNameToType.find(str);
-    if (it != LayerNameToType.end())
-        return it->second;
-    else
-        return NO_TYPE;
 }
 
 bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage) {
@@ -1719,7 +1679,7 @@ bool GNAPlugin::AreLayersSupported(ICNNNetwork& network, std::string& errMessage
     InferenceEngine::details::UnorderedDFS(allLayers,
                                            secondLayers.begin()->second,
                                            [&](const CNNLayerPtr layer) {
-                                                if (LayerTypeFromStr(layer->type) == NO_TYPE) {
+                                                if (LayerTypeFromStr(layer->type) == LayerType::NO_TYPE) {
                                                     errMessage = "The plugin does not support layer: " + layer->name + ":" + layer->type + "\n";
                                                     check_result =  false;
                                                 }
@@ -2856,7 +2816,7 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
     InferenceEngine::details::UnorderedDFS(allLayers,
                                            secondLayers.begin()->second,
                                            [&](CNNLayerPtr const layer) {
-                                                if (GNAPluginNS::GNAPlugin::LayerTypeFromStr(layer->type) != NO_TYPE) {
+                                                if (LayerTypeFromStr(layer->type) != LayerType::NO_TYPE) {
                                                     res.supportedLayersMap.insert({ layer->name, GetName() });
                                                 }
                                             }, false);
@@ -2956,7 +2916,7 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
             // find this input in vector sum all outputs in primitive
             auto it = std::find_if(concatLayerInfoItem.concatInputLayers.begin(),
                                     concatLayerInfoItem.concatInputLayers.end(),
-                                    [&name](GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) {
+                                    [&name](GNAPluginNS::GNAConcatLayer::ConcatConnectedLayerInfo &item) {
                                         return item.name == name;
                                     });
             if (it != concatLayerInfoItem.concatInputLayers.end()) {
@@ -2968,11 +2928,11 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
                             std::find_if(concat_connection.begin(),
                                          concat_connection.end(),
                                          [&concatLayerInfo]
-                                                 (const std::pair<std::string, GNAPlugin::GNAConcatLayer> &concatItem) -> bool {
+                                                 (const std::pair<std::string, GNAPluginNS::GNAConcatLayer> &concatItem) -> bool {
                                              auto it = std::find_if(concatItem.second.concatInputLayers.begin(),
                                                                     concatItem.second.concatInputLayers.end(),
                                                                     [&concatLayerInfo]
-                                                                            (const GNAPlugin::GNAConcatLayer::ConcatConnectedLayerInfo &item) -> bool {
+                                                                            (const GNAPluginNS::GNAConcatLayer::ConcatConnectedLayerInfo &item) -> bool {
                                                                         return item.name == concatLayerInfo->first;
                                                                     });
                                              return it != concatItem.second.concatInputLayers.end();
@@ -3013,30 +2973,6 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
     }
 }
 
-intel_dnn_component_t & GNAPlugin::DnnComponents::addComponent(const std::string layerName, const std::string layerMetaType) {
-    components.emplace_back(layerName, intel_dnn_component_t());
-    auto &currentComponent = components.back().second;
-#ifdef PLOT
-    currentComponent.orignal_layer_name = components.back().first.c_str();
-    std::cout << "IR layer : " << std::left << std::setw(20) << layerName << " " << layerMetaType << "_" << components.size() - 1 << std::endl;
-#endif
-    return currentComponent;
-}
-
-intel_dnn_component_t * GNAPlugin::DnnComponents::findComponent(CNNLayerPtr __layer) {
-    auto component = std::find_if(begin(components),
-                        end(components),
-                        [&](storage_type ::value_type &comp) {
-                            return comp.first == __layer->name;
-                        });
-    // check for generic prev layer
-    if (component != components.end()) {
-        return &component->second;
-    }
-
-    return nullptr;
-}
-
 std::vector<void *>& GNAPlugin::get_ptr_inputs_global(std::string name) {
     if (!ptr_inputs_global_id.count(name)) {
         ptr_inputs_global_storage.push_front({});
@@ -3045,7 +2981,7 @@ std::vector<void *>& GNAPlugin::get_ptr_inputs_global(std::string name) {
     return *ptr_inputs_global_id[name];
 }
 
-GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *ptr, size_t num_data_bytes_in, int32_t offset, int idx) {
+GNAPluginNS::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *ptr, size_t num_data_bytes_in, int32_t offset, int idx) {
     // selecting particular input layers
     auto prevLayer = CNNNetPrevLayer(layer, idx);
 
@@ -3099,7 +3035,7 @@ GNAPlugin::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *pt
             // find this input in vector sum all outputs in primitive
             auto it = std::find_if(splitLayerInfoItem.splitOutputLayers.begin(),
                                     splitLayerInfoItem.splitOutputLayers.end(),
-                                            [&idx, &layer](GNAPlugin::GNASplitLayer::SplitConnectedLayerInfo &item) {
+                                            [&idx, &layer](GNAPluginNS::GNASplitLayer::SplitConnectedLayerInfo &item) {
                                                 return item.connectedTo == layer && item.insDataIdx == idx;
                                             });
 
