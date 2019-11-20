@@ -23,9 +23,16 @@
 #include <cpp_interfaces/impl/ie_plugin_internal.hpp>
 #include <cpp_interfaces/impl/ie_executable_network_thread_safe_default.hpp>
 #include <gna_graph_tools.hpp>
+#include <descriptions/gna_output_desc.hpp>
+#include "dnn_components.hpp"
 #include "gna_allocator.hpp"
 #include "gna_api_wrapper.hpp"
 #include "gna_plugin_policy.hpp"
+#include "layers/gna_concat_layer.hpp"
+#include "layers/gna_split_layer.hpp"
+#include "layers/gna_memory_layer.hpp"
+#include "layers/gna_crop_layer.hpp"
+#include "connection_details.hpp"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
@@ -88,14 +95,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t num_active_indices = 0;
     uint32_t num_group_in = 0;
 
-    struct OutputDesc {
-        double   scale_factor = 1.0;
-        uint32_t num_bytes_per_element = 0;
-        uint32_t num_elements = 0;
-        std::vector<void *> ptrs;  // ptr per each infer request
-        intel_dnn_orientation_t orientation = kDnnUnknownOrientation;
-    };
-
     // index matches iterating order of cnnnetwork outputs info
     std::vector<OutputDesc> outputsDesc = {};
 
@@ -113,35 +112,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
 
     intel_dnn_number_type_t output_type = kDnnInt;
 
-    // internal types
-    enum LayerType {
-        Input,
-        Convolution,
-        ReLU,
-        LeakyReLU,
-        Sigmoid,
-        TanH,
-        Activation,
-        Pooling,
-        FullyConnected,
-        InnerProduct,
-        Reshape,
-        Split,
-        Slice,
-        Eltwise,
-        ScaleShift,
-        Clamp,
-        Concat,
-        Const,
-        Copy,
-        Permute,
-        Memory,
-        Power,
-        Crop,
-        LSTMCell,
-        TensorIterator,
-        NO_TYPE
-    };
 
  public:
     explicit GNAPlugin(const std::map<std::string, std::string>& configMap);
@@ -265,132 +235,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void PWLPrimitive(InferenceEngine::CNNLayerPtr);
     void CopyPrimitive(InferenceEngine::CNNLayerPtr);
     bool AreLayersSupported(InferenceEngine::ICNNNetwork& network, std::string& errMessage);
-    LayerType LayerTypeFromStr(std::string const &str) const;
-    /**
-     * maps type of connection to input and output layers also stores gna_pointer for alloc request
-     */
-    class GNAMemoryLayer {
-        InferenceEngine::CNNLayerPtr inputLayer;
-        InferenceEngine::CNNLayerPtr outputLayer;
-        const int elementSize;
 
-     public:
-        GNAMemoryLayer(InferenceEngine::CNNLayerPtr inLayer, InferenceEngine::CNNLayerPtr outLayer, int elementSize) :
-            inputLayer(inLayer), outputLayer(outLayer), elementSize(elementSize) {
-        }
-
-        InferenceEngine::CNNLayerPtr getInput() const { return inputLayer; }
-        InferenceEngine::CNNLayerPtr getOutput() const { return outputLayer; }
-        InferenceEngine::SizeVector getDims() const {
-            return inputLayer->outData.front()->getDims();
-        }
-
-        /**
-         * @brief possible to store memory in different precision
-         */
-        int elementSizeBytes() const {
-            return elementSize;
-        }
-
-        /**
-         * pointer to gna memory request
-         */
-        void *gna_ptr = nullptr;
-        /**
-         * gna memory of this size is reserved
-         */
-        size_t  reserved_size = 0;
-        /**
-         * gna memory of this offset from gna_ptr
-         */
-        size_t  reserved_offset = 0;
-    };
-
-    class GNAConcatLayer {
-        InferenceEngine::CNNLayerPtr concatLayer;
-
-     public:
-        explicit GNAConcatLayer(InferenceEngine::CNNLayerPtr layer) :
-                                        concatLayer(layer)
-                                        {}
-
-        InferenceEngine::CNNLayerPtr getConcat() { return concatLayer; }
-        /**
-         * pointer to gna memory request
-         */
-        void *gna_ptr = nullptr;
-        /**
-         * gna memory of this size is reserved for concat
-         */
-        size_t reserved_size = 0;
-        bool output_allocation_flag = false;
-        bool input_allocated = false;
-        /**
-         * gna memory of this offset from gna_ptr
-         */
-        struct ConcatConnectedLayerInfo {
-            ConcatConnectedLayerInfo(const std::string& n,
-                                    size_t o) :
-                                     name(n),
-                                     offset(o) {}
-            std::string name = "";
-            size_t offset = 0;
-        };
-
-        std::vector<ConcatConnectedLayerInfo> concatInputLayers;
-    };
-
-    // Split, Slice
-    class GNASplitLayer {
-        InferenceEngine::CNNLayerPtr splitLayer;
-
-     public:
-        explicit GNASplitLayer(InferenceEngine::CNNLayerPtr layer) :
-                                        splitLayer(layer)
-                                        {}
-
-        InferenceEngine::CNNLayerPtr getSplit() { return splitLayer; }
-        /**
-         * gna memory of this size is reserved for split
-         */
-        size_t reserved_size = 0;
-        bool output_allocation_flag = false;
-        /**
-         * gna memory of this offset from gna_ptr
-         */
-        struct SplitConnectedLayerInfo {
-            SplitConnectedLayerInfo() = default;
-            SplitConnectedLayerInfo(CNNLayerPtr connectedTo,
-                                    int insDataIdx,
-                                    size_t o,
-                                    size_t p) :
-                                     connectedTo(connectedTo),
-                                     insDataIdx(insDataIdx),
-                                     offset(o),
-                                     pure_size(p) {}
-
-            CNNLayerPtr  connectedTo;
-            int          insDataIdx = 0;
-            size_t       offset     = 0;  // in number of elements of input layer
-            size_t       pure_size  = 0;
-        };
-        std::vector<SplitConnectedLayerInfo> splitOutputLayers;
-    };
-
-    class GNACropLayer {
-        InferenceEngine::CNNLayerPtr cropLayer;
-
-    public:
-        explicit GNACropLayer(InferenceEngine::CNNLayerPtr layer) :
-        cropLayer(layer)
-        {}
-
-        InferenceEngine::CNNLayerPtr getCrop() { return cropLayer; }
-        /**
-         * pointer to gna croped memory beginning
-         */
-        void *gna_ptr = nullptr;
-    };
     using MemoryConnection = std::list<std::pair<std::string, GNAMemoryLayer>>;
     using ConcatConnection = std::unordered_map<std::string, GNAConcatLayer>;
     using SplitConnection  = std::unordered_map<std::string, GNASplitLayer>;
@@ -409,26 +254,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     void fillConcatConnections(InferenceEngine::CNNLayerPtr layer);
     void fillSplitConnections(InferenceEngine::CNNLayerPtr layer);
 
-    /**
-     * maps layer name to dnn.component, in topological sort prev nodes will be initialized
-     */
-    struct DnnComponents {
-        using storage_type = std::list<std::pair<std::string, intel_dnn_component_t>>;
-        storage_type components;
-        /**
-         * @brief initializes new empty intel_dnn_component_t object
-         * @param layerName - layer name in IR
-         * @param layerMetaType - usually either gna of original layer type
-         * @return
-         */
-        intel_dnn_component_t & addComponent(const std::string layerName, const std::string layerMetaType);
-        /**
-         * @brief returns corresponding dnn layer for topology layer
-         * @return
-         */
-        intel_dnn_component_t * findComponent(InferenceEngine::CNNLayerPtr layer);
-    } dnnComponents;
-
+    DnnComponents dnnComponents;
 
     using allocator_type = PolymorphAllocator<uint8_t>;
     using gna_memory_type = GNAMemory<allocator_type>;
@@ -467,18 +293,6 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
      * @param idx - index of input port that we are connecting
      * @return layer used as input
      */
-    struct ConnectionDetails {
-        InferenceEngine::CNNLayerPtr  input;
-        bool needTransposeWeights = false;
-        InferenceEngine::CNNLayerPtr permute;
-        ConnectionDetails(InferenceEngine::CNNLayerPtr input,
-                          bool bTranspose = false,
-                          InferenceEngine::CNNLayerPtr permute = nullptr)
-            : input(input)
-            , needTransposeWeights(bTranspose)
-            , permute(permute) {
-        }
-    };
     ConnectionDetails connectInput(InferenceEngine::CNNLayerPtr layer,
                       void *pVoid,
                       size_t num_data_bytes_in,
