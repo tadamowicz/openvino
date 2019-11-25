@@ -1532,7 +1532,7 @@ case name:\
 
     intel_pwl_segment_t *ptr_pwl_segments_target = nullptr;
 
-    if (!inputs->getPrecision().is_float()) {
+    if (!sw_fp32) {
         // TODO: generalize activation function code
         // now that scale factors are known, create PWL approximations to activation functions
         if (uniformPwlDesign) {
@@ -1802,7 +1802,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     auto networkPrecision = newNet->getPrecision();
 
-    if (!networkPrecision.is_float()) {
+    if (!sw_fp32) {
 #if GNA_LIB_VER == 1
         gnadevice.reset(new GNADeviceHelper(gna_proc_type,
                                             gna_lib_async_threads_num,
@@ -1925,7 +1925,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     dnn.Init(gnamem->getBasePtr(),
              gnamem->getTotalBytes(),
-             networkPrecision.is_float() ? kDnnFloat : kDnnInt,
+             sw_fp32 ? kDnnFloat : kDnnInt,
              1);
 
     // TODO: this copy unneed infact we can directly create gna structs from list
@@ -1941,7 +1941,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 #else
     nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
 #endif
-    if (!networkPrecision.is_float()) {
+    if (!sw_fp32) {
         // number of layer gets calculated inside that InitGNAStruct function
 #if GNA_LIB_VER == 2
         dnn.InitGNAStruct(&std::get<0>(gnaModels.front())->obj);
