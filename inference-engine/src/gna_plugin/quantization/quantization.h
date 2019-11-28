@@ -87,7 +87,7 @@ void DeQuantizeVector32(int32_t *ptr_int_memory,
                         uint32_t num_group_size,
                         float scale_factor);
 
-#include "gna-api.h"
+#include <gna-api.h>
 
 void QuantizeAffine8(float *ptr_float_weights, float *ptr_float_biases, int8_t *ptr_int_weights, intel_compound_bias_t *ptr_int_biases,
                      float input_scale_factor, float *ptr_weight_scale_factor, float *ptr_output_scale_factor,

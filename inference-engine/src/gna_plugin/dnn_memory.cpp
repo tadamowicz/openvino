@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "dnn_memory.hpp"
-#include "gna-api.h"
+#include <gna-api.h>
 
 void MemoryAssign(void **ptr_dest,
                   void **ptr_memory,

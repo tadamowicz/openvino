@@ -40,7 +40,7 @@ enum LayerType {
 };
 
 GNAPluginNS::LayerType LayerTypeFromStr(const std::string &str) {
-    static const caseless_map<std::string, GNAPluginNS::LayerType> LayerNameToType = {
+    static const InferenceEngine::details::caseless_map<std::string, GNAPluginNS::LayerType> LayerNameToType = {
             { "Input" , Input },
             { "Convolution" , Convolution },
             { "ReLU" , ReLU },
