@@ -126,7 +126,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                 auto prevLayer = CNNNetPrevLayer(cnnLayer);
                 auto prevInfo = LayerInfo(prevLayer);
                 auto inputQuant = getInjectedData<QuantizedLayerParams>(prevLayer);
-               // locating corresponding memory layers ith same ID
+               // locating corresponding memory layers with same ID
                 for (auto && input : CNNNetGetAllInputLayers(cnnLayer)) {
                     LayerInfo ll(input);
                     if (!ll.isMemory() ||
@@ -143,10 +143,47 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                     }
 
                     if (!fp32eq(quantSibling->_dst_quant.scale, 1)) {
-                        // means we already restarted propagation from that memory layer - we cannot do mach here
-                        THROW_GNA_EXCEPTION << "quantization error : input scale factor ( " << inputQuant->_dst_quant.scale <<") "
+                        // means we already restarted propagation input memory layer
+                        // need to search for requantiseable layer prior memory output layer
+                        CNNLayerPtr  restartedLayer;
+
+                        gnalog() << "Memory layer :"<< input->name << " scale factor: " << quantSibling->_dst_quant.scale
+                            << " doen't match its outputs counterpart: " << cnnLayer->name << " scale factor: " << inputQuant->_dst_quant.scale << "\n";
+                        gnalog() << "[UFS] searching for quantizeable input layer for: "<< cnnLayer->name << "\n";
+
+                        CNNNetDFS(CNNLayerPtr(cnnLayer, [](CNNLayer*){}), [&restartedLayer, cnnLayer](CNNLayerPtr layer) {
+                            gnalog() << "[UFS] from : "<< cnnLayer->name <<" reached: " << layer->name;
+                            // found that direct input to concat is a indirect parent of align filter - so no link required
+                            auto info = LayerInfo(layer);
+                            if (!info.isWeightable() && !info.isActivation()) {
+                                gnalog() << "... skipped\n";
+                                return;
+                            }
+                            restartedLayer = layer;
+                            gnalog() << "... OK,  need requantize\n";
+                        }, true, [&restartedLayer, &cnnLayer](InferenceEngine::CNNLayer* from) {
+                            // aborting UFS once found suitable layer
+                            return make_upstream_order(restartedLayer == nullptr ? from : nullptr);
+                        });
+
+                        if (restartedLayer == nullptr) {
+                            THROW_GNA_EXCEPTION << "cannot requantize input to " << cnnLayer->name;
+                        }
+
+                        auto quantDataForMemoryOutput = InferenceEngine::getInjectedData<QuantizedLayerParams>(*restartedLayer);
+
+                        auto restarLayerInfo = LayerInfo(restartedLayer);
+                        if (restarLayerInfo.isActivation()) {
+                            // requantize activation by just changing it's output scale factor
+                            quantDataForMemoryOutput->_dst_quant.scale = quantSibling->_dst_quant.scale;
+                        } else {
+                            THROW_GNA_EXCEPTION << "quantization error : input scale factor ( " << inputQuant->_dst_quant.scale <<") "
                                   << " for " << cnnLayer->name << ", that is child of " << prevLayer->name <<" doesnt match : "
                                   << activation_scale_factor;
+                        }
+
+                        result = ScaleFactorUpdateResult(restartedLayer.get());
+                        return true;
                     }
 
                     gnawarn() << "[INFO] quantization : input scale factor (" << inputQuant->_dst_quant.scale <<")"
@@ -348,7 +385,7 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
         quantData->_dst_quant.scale = sourceQuantParams->_dst_quant.scale;
         quantData->_src_quant.scale = sourceQuantParams->_dst_quant.scale;
 
-        if (concatIdxToUpdate == -1) {
+        if (fp32eq(quantParams0->_dst_quant.scale, quantParams1->_dst_quant.scale) || concatIdxToUpdate == -1) {
             return true;
         }
 
