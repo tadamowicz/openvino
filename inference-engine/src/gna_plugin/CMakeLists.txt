@@ -11,6 +11,7 @@ file(GLOB_RECURSE HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/*.h
         ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/descriptions/*.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/memory/*.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/layers/*.hpp)
 
 addVersionDefines(gna_plugin_entry_points.cpp CI_BUILD_NUMBER)

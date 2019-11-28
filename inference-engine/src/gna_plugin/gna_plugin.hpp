@@ -25,7 +25,7 @@
 #include <gna_graph_tools.hpp>
 #include <descriptions/gna_output_desc.hpp>
 #include "dnn_components.hpp"
-#include "gna_allocator.hpp"
+#include "memory/gna_allocator.hpp"
 #include "gna_api_wrapper.hpp"
 #include "gna_plugin_policy.hpp"
 #include "layers/gna_concat_layer.hpp"
@@ -263,7 +263,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     using allocator_type = PolymorphAllocator<uint8_t>;
     using gna_memory_type = GNAMemory<allocator_type>;
 
-    std::unique_ptr<GNADeviceHelper> gnadevice;
+    std::shared_ptr<GNADeviceHelper> gnadevice;
     /**
      * @brief size of RW segment without extra memory for parallel execution
      */
