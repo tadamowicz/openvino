@@ -34,11 +34,14 @@ public:
      */
     struct ConcatConnectedLayerInfo {
         ConcatConnectedLayerInfo(const std::string& n,
-            size_t o) :
-            name(n),
-            offset(o) {}
+                                size_t o,
+                                size_t sz) :
+                                 name(n),
+                                 offset(o),
+                                 tensorSize(sz) {}
         std::string name = "";
         size_t offset = 0;
+        size_t tensorSize = 0;
     };
 
     std::vector<ConcatConnectedLayerInfo> concatInputLayers;

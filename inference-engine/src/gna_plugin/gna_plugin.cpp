@@ -411,12 +411,13 @@ void GNAPlugin::fillConcatConnections(InferenceEngine::CNNLayerPtr layer) {
         if (!ptrConcatLayerInput) {
             THROW_GNA_EXCEPTION << "Input layer for concat is unexpectedly absent";
         }
-        layerInfoItem.concatInputLayers.emplace_back(
-                GNAPluginNS::GNAConcatLayer::ConcatConnectedLayerInfo({ptrConcatLayerInput->name, concat_size}));
 
         size_t layer_size =
                      InferenceEngine::details::product(begin(dataInput->getDims()),
                                                       end(dataInput->getDims())) * dataInput->getPrecision().size();
+
+        layerInfoItem.concatInputLayers.emplace_back(GNAConcatLayer::ConcatConnectedLayerInfo{ptrConcatLayerInput->name, concat_size, layer_size});
+
         concat_size += layer_size;
     }
     layerInfoItem.reserved_size = concat_size;
@@ -877,15 +878,23 @@ void GNAPlugin::ConcatPrimitive(InferenceEngine::CNNLayerPtr layer) {
         IE_ASSERT(it != concatLayerInput->insData.size());
         auto layerInfo = LayerInfo(concatLayerInput->insData[it].lock()->getCreatorLayer().lock());
         if (layerInfo.isInput()) {
-            auto insDataSize = concatLayerInfo.reserved_size-inputLayer.offset;
             if (concatLayerInfo.input_allocated) {
                 // for concat input allocated only once, so lets mark this specific input layer also as allocated
                 // we will bind it to offset further in connectInput
+                // size need to be equal to full layer in order to pass checks
                 bytes_alllocated_for_input[((InferenceEngine::CNNLayerPtr)layerInfo)->name] = concatLayerInfo.reserved_size;
             }
 
             connectInput(layer, &concatLayerInfo.gna_ptr,
-                         insDataSize, -static_cast<int32_t>(inputLayer.offset), idx);
+                         concatLayerInfo.reserved_size, -static_cast<int32_t>(inputLayer.offset), idx);
+
+            // TODO: currently connectInput api accept only total size, for concat we need extension for allocated, and actual sizes
+            bytes_alllocated_for_input[((InferenceEngine::CNNLayerPtr) layerInfo)->name] = inputLayer.tensorSize;
+
+            concatLayerInfo.input_allocated = true;
+        } else  if (layerInfo.isMemory()) {
+            connectInput(layer, &concatLayerInfo.gna_ptr, concatLayerInfo.reserved_size, inputLayer.offset, idx);
+
             concatLayerInfo.input_allocated = true;
         }
         ++idx;
@@ -1759,8 +1768,16 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 #ifdef PLOT
     std::ofstream file("gna_passes.dot");
     saveGraphToDot(*newNet, file, [](const CNNLayerPtr layer,
-    ordered_properties &printed_properties,
-    ordered_properties &node_properties) {});
+                                           ordered_properties &printed_properties,
+                                           ordered_properties &node_properties) {
+        // printing quantized params
+        auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+        if (!quantized) {
+            return;
+        }
+        printed_properties.emplace_back(
+            "scale factor", std::to_string(quantized->_dst_quant.scale));
+    });
 #endif
 
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
@@ -2943,9 +2960,10 @@ void GNAPlugin::connectOutput(InferenceEngine::CNNLayerPtr layer, void *ptr, siz
                         for (auto &&inputLayer : concatLayerInfoItem.concatInputLayers) {
                             if (InferenceEngine::details::CaselessEq<std::string>()
                                     (inputLayer.name, "input")) {
-                                bytes_alllocated_for_input[inputLayer.name] = ALIGN64(concatLayerInfoItem.reserved_size) - inputLayer.offset;
+                                bytes_alllocated_for_input[inputLayer.name] = inputLayer.tensorSize;
                             }
                         }
+                        concatLayerInfoItem.input_allocated = true;
                     }
                     concatLayerInfo->second.output_allocation_flag = true;
                 }
@@ -2990,7 +3008,19 @@ GNAPluginNS::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *
     // real input not a memory input
     if (LayerInfo(prevLayer).isInput()) {
         if (0 == bytes_alllocated_for_input[prevLayer->name]) {
-            gnamem->push_value(&get_ptr_inputs_global(prevLayer->name).front(), static_cast<uint8_t>(0), num_data_bytes_in, 64);
+            // real allocation pointer will be kept in ptr not in ptf_inputs_global
+            if (offset < 0) {
+                gnamem->push_value(ptr,
+                                   static_cast<uint8_t>(0),
+                                   num_data_bytes_in,
+                                   64);
+            } else {
+                gnamem->push_value(&get_ptr_inputs_global(prevLayer->name).front(),
+                                   static_cast<uint8_t>(0),
+                                   num_data_bytes_in,
+                                   64);
+            }
+
             bytes_alllocated_for_input[prevLayer->name] = num_data_bytes_in;
         }
         if (ALIGN(num_data_bytes_in, 64) > ALIGN(bytes_alllocated_for_input[prevLayer->name], 64)) {
@@ -3086,7 +3116,12 @@ GNAPluginNS::ConnectionDetails GNAPlugin::connectInput(CNNLayerPtr layer, void *
         if (memoryLayer.reserved_size == 0) {
             auto memorySize = InferenceEngine::details::product(memoryLayer.getDims()) * memoryLayer.elementSizeBytes();
 
-            gnamem->reserve_ptr(&memoryLayer.gna_ptr, ALIGN64(memorySize), 64);
+            if (num_data_bytes_in < memorySize) {
+                THROW_GNA_EXCEPTION << "Memory layer : " << layer->name <<" invalid allocation request of "
+                    << num_data_bytes_in << " is less then tensor size of" << memorySize;
+            }
+
+            gnamem->reserve_ptr(&memoryLayer.gna_ptr, ALIGN64(num_data_bytes_in), 64);
             gnamem->bind_ptr(ptr, &memoryLayer.gna_ptr, offset);
 
             memoryLayer.reserved_size = ALIGN64(memorySize);
