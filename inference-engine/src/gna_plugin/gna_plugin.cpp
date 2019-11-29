@@ -51,6 +51,7 @@
 #include "gna_pass_manager.hpp"
 #include "gna_fused_iterator.hpp"
 #include "gna_lib_ver_selector.hpp"
+#include "memory/gna_allocator.hpp"
 #include "layers/gna_concat_layer.hpp"
 #include "layers/gna_split_layer.hpp"
 #include "layers/gna_memory_layer.hpp"
@@ -1833,7 +1834,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
             performance_counting));
 #endif
         gnamem.reset(new gna_memory_type(
-                make_polymorph<GNAAllocator>(*gnadevice.get()), PAGE_SIZE_BYTES));
+                make_polymorph<memory::GNAAllocator>(gnadevice), PAGE_SIZE_BYTES));
     } else {
         gnamem.reset(new gna_memory_type(make_polymorph<std::allocator<uint8_t>>()));
     }
@@ -2456,7 +2457,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
         gna_lib_async_threads_num,
         gna_openmp_multithreading));
 #endif
-    gnamem.reset(new gna_memory_type(make_polymorph<GNAAllocator>(*gnadevice.get()), PAGE_SIZE_BYTES));
+    gnamem.reset(new gna_memory_type(make_polymorph<memory::GNAAllocator>(gnadevice), PAGE_SIZE_BYTES));
 
     void *basePtr = nullptr;
     gnamem->reserve_ptr(&basePtr, header.gnaMemSize);
