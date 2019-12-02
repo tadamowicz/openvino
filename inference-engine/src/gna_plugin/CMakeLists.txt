@@ -19,7 +19,7 @@ addVersionDefines(gna_plugin_entry_points.cpp CI_BUILD_NUMBER)
 find_package(libGNA)
 
 set(TARGET_INCLUDE_DIRS
-        ${IE_MAIN_SOURCE_DIR}/src/inference_engine
+        $<TARGET_PROPERTY:inference_engine_plugin_api,INTERFACE_INCLUDE_DIRECTORIES>
         ${IE_MAIN_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR})
 
