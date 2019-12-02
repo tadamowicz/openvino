@@ -439,8 +439,8 @@ void GNAPluginNS::backend::AMIntelDNN::WriteGraphWizModel(const char *filename) 
                  "  <TR><TD  colspan=\"2\">" <<  l << "</TD></TR>\n";
 
 #ifdef PLOT
-        if (components[k].orignal_layer_name != nullptr) {
-            graph << "  <TR><TD> IR </TD><TD>" << components[k].orignal_layer_name << "</TD></TR>\n";
+        if (components[k].original_layer_name != nullptr) {
+            graph << "  <TR><TD> IR </TD><TD>" << components[k].original_layer_name << "</TD></TR>\n";
         }
 #endif
         graph << "  <TR><TD> dims</TD><TD>" <<  components[k].num_rows_in << "x" <<  components[k].num_rows_out<< "</TD></TR>\n";
