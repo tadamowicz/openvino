@@ -1604,10 +1604,27 @@ case name:\
 void GNAPlugin::PermutePrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto layerOrder = layer->GetParamAsInts("order");
 
-    if (layerOrder != vector<int>({0, 3, 2, 1})) {
-        THROW_IE_EXCEPTION << "[GNA plugin] Unsupported permute order: was " << layer->GetParamAsString("order") <<
-                           ", but only support 0,3,2,1";
+    string dimMessage;
+    if (layerOrder == vector<int>({0, 3, 2, 1})) {
+        return;  // supported case
     }
+
+    if (layerOrder == vector<int>({1, 0, 2})) {
+        auto inputs = layer->insData.begin()->lock();
+        auto inputs_size = inputs->getTensorDesc().getDims().size();
+        if (inputs_size != layerOrder.size()) {
+            THROW_IE_EXCEPTION << "[GNA plugin] Invalid input tensor size for permute layer " <<
+                                  layer->GetParamAsString("order");
+        }
+        auto permuteDim0 = FROM_IR_DIM(inputs, inputs_size);
+        auto permuteDim1 = FROM_IR_DIM(inputs, inputs_size - 1);
+        if (permuteDim0 == 1 || permuteDim1 == 1) {
+            return;  // supported case
+        }
+        dimMessage = " (with first dim = " + to_string(permuteDim0) + ", second dim = " + to_string(permuteDim1) + ")";
+    }
+    THROW_IE_EXCEPTION << "[GNA plugin] Unsupported permute order: was " << layer->GetParamAsString("order") <<
+                          dimMessage << ", but only support 1,0,2 (with first or second dim = 1) and 0,3,2,1";
 }
 
 #define CREATE(name) [](GNAPlugin *p, CNNLayerPtr l) {p->name(l);}
@@ -1946,7 +1963,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
              sw_fp32 ? kDnnFloat : kDnnInt,
              1);
 
-    // TODO: this copy unneed infact we can directly create gna structs from list
+    // TODO: this copy is unneeded; in fact, we can directly create gna structs from list
     for (auto &element : dnnComponents.components) {
         dnn.component.push_back(element.second);
     }
