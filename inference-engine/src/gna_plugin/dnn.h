@@ -17,6 +17,8 @@
 #include <vector>
 #include <gna-api.h>
 
+#include "gna_plugin_log.hpp"
+
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
 #endif
