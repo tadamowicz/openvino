@@ -4,17 +4,17 @@
 
 #pragma once
 
+#ifdef _WIN32
+#include <malloc.h>
+#else
+#include <mm_malloc.h>
+#endif
 #include <gna-api-types-xnn.h>
 #include "gna_plugin_log.hpp"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
-void freeGna2Operation(Gna2Operation& operation);   // from dnn.cpp
-
-void* gnaUserAllocator(uint32_t size);   // from dnn.cpp
-void* gnaUserAllocatorAlignedPage(uint32_t size);
-
-void gnaUserFree(void* ptr);   // from dnn.cpp
+#include <gna2_model_helper.hpp>
 #endif
 
 namespace GNAPluginNS {

@@ -4,8 +4,9 @@
 
 #if GNA_LIB_VER == 2
 
+#ifdef _WIN32
 #include <malloc.h>
-#ifndef _WIN32
+#else
 #include <mm_malloc.h>
 #endif
 
