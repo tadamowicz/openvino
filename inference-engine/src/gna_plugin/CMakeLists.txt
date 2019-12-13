@@ -79,3 +79,9 @@ if(WIN32)
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/bigobj> )
     target_compile_options(${TARGET_NAME}_test_static PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/bigobj> )
 endif()
+
+# install
+
+install(FILES "${GNA_KERNEL_LIBRARY}"
+        DESTINATION ${IE_CPACK_IE_DIR}/external/gna/lib
+        COMPONENT gna)
