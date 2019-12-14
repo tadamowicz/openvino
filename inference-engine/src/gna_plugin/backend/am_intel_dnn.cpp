@@ -8,6 +8,8 @@
 #include <set>
 #include <string>
 #include <algorithm>
+#include <unordered_set>
+
 #ifdef _WIN32
 #include <malloc.h>
 #else
@@ -19,7 +21,6 @@
 #include "gna_plugin_log.hpp"
 #include "dnn.hpp"
 #include "am_intel_dnn.hpp"
-#include "dnn_dump.hpp"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
@@ -27,14 +28,15 @@
 #include "gna2_model_debug_log.hpp"
 #else
 #include <gna-api-types-xnn.h>
+
 #endif
 
 using namespace GNAPluginNS::backend;
 
-void GNAPluginNS::backend::AMIntelDNN::BeginNewWrite() {
-    DNN_Dump::getInstance()->getDumpFolderId()++;
-}
 
+void GNAPluginNS::backend::AMIntelDNN::BeginNewWrite(uint32_t index) {
+    dump_write_index = index;
+}
 
 void GNAPluginNS::backend::AMIntelDNN::Init(void *ptr_memory,
                       uint32_t num_memory_bytes,
@@ -982,10 +984,8 @@ void GNAPluginNS::backend::AMIntelDNN::WriteDnnText(const char *filename, intel_
     std::ofstream out_file((std::string(filename) + ".light").c_str(), std::ios::out);
 #endif
     if (out_file.good()) {
-        uint32_t num_inputs = component[0].num_rows_in;
-        uint32_t num_outputs =
-                (component[component.size() - 1].orientation_out == kDnnInterleavedOrientation) ? component[
-                        component.size() - 1].num_rows_out : component[component.size() - 1].num_columns_out;
+        uint32_t num_inputs = this->num_inputs();
+        uint32_t num_outputs = this->num_outputs();
         uint32_t num_layers = num_gna_layers();
         uint32_t num_group = this->num_group_in();
         uint32_t layer = 0;
@@ -1001,7 +1001,7 @@ void GNAPluginNS::backend::AMIntelDNN::WriteDnnText(const char *filename, intel_
         for (uint32_t i = 0; i < component.size(); i++) {
 #ifdef LIGHT_DUMP
             std::stringstream out_file_name;
-            out_file_name << DNN_Dump::getInstance()->getDumpFolderName() << std::setfill('0') << std::setw(2) << i << "_"
+            out_file_name << getDumpFolderName() << std::setfill('0') << std::setw(2) << i << "_"
                           << intel_dnn_operation_name[component[i].operation]
                           << "-" << component[i].num_rows_in
                           << "-" << component[i].num_rows_out;
@@ -2106,11 +2106,11 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(intel_nnet_typ
                           << "-" << nnet->pLayers[i].nInputRows
                           << "-" << nnet->pLayers[i].nOutputRows;
 
-            auto dumpFilePrefixGNA = DNN_Dump::getInstance()->getDumpFilePrefixGNA();
+            auto dumpFilePrefixGNA = getDumpFilePrefixGNA();
             auto inputfileName = dumpFilePrefixGNA + out_file_name.str() + "_input.txt";
             auto outFileName = dumpFilePrefixGNA + out_file_name.str() + "_output.txt";
             auto pwlFileName = dumpFilePrefixGNA + out_file_name.str() + "_pwl.txt";
-            auto refOutputFileName = DNN_Dump::getInstance()->getRefFolderName() + out_file_name.str() + "_output.txt";
+            auto refOutputFileName = getRefFolderName() + out_file_name.str() + "_output.txt";
 
 
 
@@ -2193,7 +2193,10 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(intel_nnet_typ
 #else
 void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(const Gna2Model & model) {
 #ifdef LIGHT_DUMP
-    WriteInputAndOutputTextGNAImpl(model, getDumpFilePrefixGNA(), getRefFolderName());
+    WriteInputAndOutputTextGNAImpl(
+        model,
+        getDumpFilePrefixGNA(),
+        getRefFolderName());
 #endif
 }
 #endif
@@ -2209,9 +2212,9 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputText() {
         if (component[i].operation == kDnnPiecewiselinearOp) {
             out_file_name << "-" << intel_dnn_activation_name[component[i].op.pwl.func_id];
         }
-        auto inputfileName = DNN_Dump::getInstance()->getDumpFolderName() + out_file_name.str() + "_input.txt";
-        auto outFileName = DNN_Dump::getInstance()->getDumpFolderName() + out_file_name.str() + "_output.txt";
-        auto refOutputFileName = DNN_Dump::getInstance()->getRefFolderName() + out_file_name.str() + "_output.txt";
+        auto inputfileName = getDumpFolderName() + out_file_name.str() + "_input.txt";
+        auto outFileName = getDumpFolderName() + out_file_name.str() + "_output.txt";
+        auto refOutputFileName = getRefFolderName() + out_file_name.str() + "_output.txt";
 
         std::ofstream out_file(outFileName.c_str(), std::ios::out);
         std::ifstream ref_out_file(refOutputFileName.c_str(), std::ios::in);
@@ -2285,4 +2288,67 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputText() {
         }
 #endif
     }
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_components() {
+    return static_cast<uint32_t>(component.size());
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_gna_layers() {
+    uint32_t num_layers = 0;
+    std::unordered_set<intel_dnn_operation_t> gna_layers({ kDnnAffineOp,
+                                                kDnnDiagonalOp,
+                                                kDnnConvolutional1dOp,
+                                                kDnnCopyOp,
+                                                kDnnDeinterleaveOp,
+                                                kDnnInterleaveOp,
+                                                kDnnRecurrentOp });
+    for (auto & i : component) {
+        if (gna_layers.find(i.operation) != gna_layers.end()) {
+            num_layers++;
+        }
+    }
+    return num_layers;
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_group_in() {
+    return ((!component.empty()) ? ((component[0].orientation_in == kDnnInterleavedOrientation)
+                                    ? component[0].num_columns_in : component[0].num_rows_in) : 0);
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_group_out() {
+    return ((!component.empty()) ? ((component[component.size() - 1].orientation_out == kDnnInterleavedOrientation)
+                                    ? component[component.size() - 1].num_columns_out : component[component.size() -
+                                                                                                  1].num_rows_out) : 0);
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_inputs() {
+    return component.empty() ? 0 : component[0].num_rows_in;
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_outputs() {
+    return (component[component.size() - 1].orientation_out == kDnnInterleavedOrientation) ? component[
+            component.size() - 1].num_rows_out : component[component.size() - 1].num_columns_out;
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getDumpFilePrefix(const std::string& folder) {
+    const char pathSeparator =
+#ifdef _WIN32
+            '\\';
+#else
+            '/';
+#endif
+    return std::string(".") + pathSeparator + folder + pathSeparator + std::to_string(dump_write_index) + pathSeparator;
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getDumpFilePrefixGNA() {
+    return getDumpFilePrefix("gna_layers");
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getDumpFolderName() {
+    return getDumpFilePrefix("layers");
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getRefFolderName() {
+    return getDumpFilePrefix("ref_layers");
 }

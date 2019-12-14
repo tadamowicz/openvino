@@ -22,6 +22,7 @@
 #include <graph_tools.hpp>
 #include <debug.h>
 #include <gna/gna_config.hpp>
+#include <ie_util_internal.hpp>
 #include "gna_plugin.hpp"
 #include "optimizer/gna_pass_manager.hpp"
 #include "layers/gna_layer_type.hpp"
@@ -690,7 +691,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     DumpXNNToFile();
 
 #ifdef PLOT
-    dnn.WriteGraphWizModel("gna-blob.dot");
+    dnn->WriteGraphWizModel("gna-blob.dot");
 #endif
 #if GNA_LIB_VER == 2
     createRequestConfigsForGnaModels();
@@ -881,10 +882,11 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
     }
 
 #ifdef PLOT
-    dnn.BeginNewWrite();
-    if (dnn.num_components() != 0) {
-        dnn.WriteDnnText("Net_.txt", kDnnFloat);
+    dnn->BeginNewWrite(dnn_dump_write_index);
+    if (dnn->num_components() != 0) {
+        dnn->WriteDnnText("Net_.txt", kDnnFloat);
     }
+    dnn_dump_write_index++;
 #endif
     if (freeNnet != nnets.end()) {
         // TODO: GNA2: Substitute properly when using GNA 2.0 Library setting and CPU
@@ -908,13 +910,13 @@ void GNAPlugin::Wait(uint32_t request_idx) {
     std::get<1>(nnets[request_idx]) = -1;
     auto &request = std::get<2>(nnets[request_idx]);
 #ifdef PLOT
-    if (dnn.num_components() != 0) {
-        dnn.WriteInputAndOutputText();
+    if (dnn->num_components() != 0) {
+        dnn->WriteInputAndOutputText();
     }
 #if GNA_LIB_VER == 1
-    dnn.WriteInputAndOutputTextGNA(&std::get<0>(nnets[request_idx])->obj);
+    dnn->WriteInputAndOutputTextGNA(&std::get<0>(nnets[request_idx])->obj);
 #else
-    dnn.WriteInputAndOutputTextGNA(std::get<0>(gnaModels[request_idx])->obj);
+    dnn->WriteInputAndOutputTextGNA(std::get<0>(gnaModels[request_idx])->obj);
 #endif
 #endif
     int output_idx = 0;
@@ -1146,7 +1148,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     DumpXNNToFile();
 
 #ifdef PLOT
-    dnn.WriteGraphWizModel("gna-blob.dot");
+    dnn->WriteGraphWizModel("gna-blob.dot");
 #endif
 #if GNA_LIB_VER == 2
     createRequestConfigsForGnaModels();

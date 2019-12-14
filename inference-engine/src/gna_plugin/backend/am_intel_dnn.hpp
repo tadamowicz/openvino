@@ -41,10 +41,10 @@ public:
 
     ~AMIntelDNN();
 
-    uint32_t num_components() { return (uint32_t) component.size(); }
-
-    void
-    Init(void *ptr_memory, uint32_t num_memory_bytes, intel_dnn_number_type_t number_type, float scale_factor);
+    void Init(void *ptr_memory,
+            uint32_t num_memory_bytes,
+            intel_dnn_number_type_t number_type,
+            float scale_factor);
 
     void InitActiveList(uint32_t *ptr_active_list);
 
@@ -500,32 +500,17 @@ public:
 
     uint32_t num_active_outputs() { return (num_active_outputs_); }
 
-    uint32_t num_gna_layers() {
-        uint32_t num_layers = 0;
-        for (uint32_t i = 0; i < component.size(); i++) {
-            if ((component[i].operation == kDnnAffineOp) || (component[i].operation == kDnnDiagonalOp)
-                || (component[i].operation == kDnnConvolutional1dOp) || (component[i].operation == kDnnCopyOp)
-                || (component[i].operation == kDnnDeinterleaveOp) ||
-                (component[i].operation == kDnnInterleaveOp)
-                || (component[i].operation == kDnnRecurrentOp)) {
-                num_layers++;
-            }
-        }
-        return (num_layers);
-    }
+    uint32_t num_components();
 
-    uint32_t num_group_in() {
-        return ((component.size() > 0) ? ((component[0].orientation_in == kDnnInterleavedOrientation)
-                                          ? component[0].num_columns_in : component[0].num_rows_in) : 0);
-    }
+    uint32_t num_gna_layers();
 
-    uint32_t num_group_out() {
-        return ((component.size() > 0) ? ((component[component.size() - 1].orientation_out
-                                           == kDnnInterleavedOrientation) ? component[component.size() -
-                                                                                      1].num_columns_out
-                                                                          : component[
-                                                  component.size() - 1].num_rows_out) : 0);
-    }
+    uint32_t num_group_in();
+
+    uint32_t num_group_out();
+
+    uint32_t num_inputs();
+
+    uint32_t num_outputs();
 
     std::vector<intel_dnn_component_t> component;
     uint32_t num_left_context;
@@ -541,14 +526,12 @@ public:
     void WriteInputAndOutputText();
 
 #if GNA_LIB_VER == 1
-
-    static void WriteInputAndOutputTextGNA(intel_nnet_type_t *nnet);
-
+    void WriteInputAndOutputTextGNA(intel_nnet_type_t *nnet);
 #else
-    static void WriteInputAndOutputTextGNA(const Gna2Model & model);
+    void WriteInputAndOutputTextGNA(const Gna2Model & model);
 #endif
 
-    void BeginNewWrite();
+    void BeginNewWrite(uint32_t index);
 
 private:
     void *ptr_dnn_memory_;
@@ -557,6 +540,7 @@ private:
     uint32_t num_active_outputs_;
     intel_dnn_number_type_t number_type_;
     float input_scale_factor_;
+    uint32_t dump_write_index = 0;
 
     uint32_t CountLayers();
 
@@ -645,6 +629,11 @@ private:
                                            void *&ptr_biases,
                                            bool isDiag,
                                            bool postInitMem);
+
+    std::string getDumpFilePrefix(const std::string& folder);
+    std::string getDumpFilePrefixGNA();
+    std::string getDumpFolderName();
+    std::string getRefFolderName();
 };
 }  // namespace backend
 }  // namespace GNAPluginNS

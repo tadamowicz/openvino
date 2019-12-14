@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace GNAPluginNS {
 namespace memory {
 

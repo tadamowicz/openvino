@@ -31,6 +31,8 @@ typedef void (*GnaUserFree)(void*);
 
 Gna2DataType Gna2DataTypeFromBytes(uint32_t num_bytes_per_input);
 
+void* gnaUserAllocatorAlignedPage(uint32_t size);
+
 void* gnaUserAllocator(uint32_t size);
 
 void gnaUserFree(void* ptr);
