@@ -334,6 +334,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         auto passes = make_shared<PassManager>(policy, network, runBeforeCopy);
         passes->registerPass<RemoveConstPass>();
         passes->registerPass<UnrollTIPass>();
+        passes->registerPass<RemoveConstPass>();
         passes->registerPass<UnrollLSTMCellPass>();
 
         passes->registerPass<SubstitutePReluPass>();

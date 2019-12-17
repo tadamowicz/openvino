@@ -149,8 +149,8 @@ class LayerInfo {
     bool isConcat() const noexcept {
         return isOfType("concat");
     }
-    bool isReshape() const noexcept {
-        return isOfType("reshape");
+    bool isNonFunctional() const noexcept {
+        return isOfType("reshape") || isOfType("squeeze");
     }
     bool isPermute() const noexcept {
         return isOfType("permute");
