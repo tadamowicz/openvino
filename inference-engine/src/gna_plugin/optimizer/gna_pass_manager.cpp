@@ -373,7 +373,7 @@ void ReversePermutationsPass::run() {
 
     auto prevLayerSkipReshape = [&prevLayerSkipCertain](CNNLayerPtr layer) -> CNNLayerPtr {
         return prevLayerSkipCertain(layer, [] (CNNLayerPtr l2) {
-            return LayerInfo(l2).isReshape();
+            return LayerInfo(l2).isNonFunctional();
         });
     };
 
@@ -387,7 +387,7 @@ void ReversePermutationsPass::run() {
         }
         auto next = layer->outData.front()->getInputTo().begin()->second;
 
-        if (LayerInfo(next).isReshape()) return nextLayerSkipReshape(next);
+        if (LayerInfo(next).isNonFunctional()) return nextLayerSkipReshape(next);
 
         return next;
     };
@@ -395,7 +395,7 @@ void ReversePermutationsPass::run() {
     auto prevConv = [&prevLayerSkipCertain](CNNLayerPtr layer) -> CNNLayerPtr {
         return prevLayerSkipCertain(layer, [] (CNNLayerPtr l2) {
             return
-                LayerInfo(l2).isReshape() ||
+                LayerInfo(l2).isNonFunctional() ||
                 LayerInfo(l2).isPooling() ||
                 LayerInfo(l2).isActivation();
         });
@@ -524,7 +524,7 @@ void InsertCopyLayerPass::run() {
     for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
         auto prevLayers = CNNNetGetPrevLayersSkip(l, [](CNNLayerPtr origin){
-            return !LayerInfo(origin).isReshape();
+            return !LayerInfo(origin).isNonFunctional();
         });
 
         for (int i=0; i != prevLayers.size(); i++) {
@@ -688,7 +688,7 @@ void ReorderConcatInputsPass::run() {
             THROW_GNA_EXCEPTION << "Concat layer has unsupported number of incoming layers: " << concat->name;
         }
         auto inputsToConcatFirst = CNNNetGetPrevLayersSkip(concat, [](CNNLayerPtr origin){
-            return !LayerInfo(origin).isReshape() && !LayerInfo(origin).isSplit();
+            return !LayerInfo(origin).isNonFunctional() && !LayerInfo(origin).isSplit();
         }, 0);
 
         if (inputsToConcatFirst.empty()) {

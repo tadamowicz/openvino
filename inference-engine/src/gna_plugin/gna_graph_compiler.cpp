@@ -1327,6 +1327,7 @@ void GNAGraphCompiler::CreateLayerPrimitive(CNNLayerPtr layer) {
         {{"Power"} , CREATE(PowerPrimitive)},
         {{"Concat"}, CREATE(ConcatPrimitive)},
         {{"Reshape"}, SKIP},  // TODO: handled not in GNA but rather in GNA plugin
+        {{"Squeeze"}, SKIP},  // TODO: handled not in GNA but rather in GNA plugin
         {{"Crop"}, CREATE(CropPrimitive)},
         {{"Copy"}, CREATE(CopyPrimitive)},
         {{"TensorIterator"}, SKIP},
@@ -1385,7 +1386,7 @@ void GNAGraphCompiler::connectOutput(InferenceEngine::CNNLayerPtr layer, void *p
             std::list<CNNLayerPtr> split;
             for (auto &&outLayer : layer->outData.front()->getInputTo()) {
                 auto nextLayer = outLayer.second;
-                if (LayerInfo(nextLayer).isSplit() || LayerInfo(nextLayer).isReshape()) {
+                if (LayerInfo(nextLayer).isSplit() || LayerInfo(nextLayer).isNonFunctional()) {
                     split.push_back(nextLayer);
                 }
             }
@@ -1619,7 +1620,7 @@ GNAPluginNS::ConnectionDetails GNAGraphCompiler::connectInput(CNNLayerPtr layer,
     }
 
     // several layers are to be skipped right now
-    if (LayerInfo(prevLayer).isReshape()) {
+    if (LayerInfo(prevLayer).isNonFunctional()) {
         gnalog()  << "Skipping reshape layer: " << prevLayer->name << "\n";
         return connectInput(prevLayer, ptr, num_data_bytes_in, offset, 0);
     }
