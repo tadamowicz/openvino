@@ -6,8 +6,11 @@
 
 #include <vector>
 #include <string>
-#include "dnn.h"
-#include "details/caseless.hpp"
+
+#include <ie_icnn_network.hpp>
+#include <details/caseless.hpp>
+
+#include "backend/dnn_types.h"
 
 namespace GNAPluginNS {
 enum LayerType {
@@ -22,6 +25,7 @@ enum LayerType {
     FullyConnected,
     InnerProduct,
     Reshape,
+    Squeeze,
     Split,
     Slice,
     Eltwise,
@@ -39,36 +43,33 @@ enum LayerType {
     NO_TYPE
 };
 
-GNAPluginNS::LayerType LayerTypeFromStr(const std::string &str) {
-    static const InferenceEngine::details::caseless_map<std::string, GNAPluginNS::LayerType> LayerNameToType = {
-            { "Input" , Input },
-            { "Convolution" , Convolution },
-            { "ReLU" , ReLU },
-            { "Sigmoid" , Sigmoid },
-            { "TanH" , TanH },
-            { "Pooling" , Pooling },
-            { "FullyConnected" , FullyConnected },
-            { "InnerProduct" , InnerProduct},
-            { "Split" , Split },
-            { "Slice" , Slice },
-            { "Eltwise" , Eltwise },
-            { "Const" , Const },
-            { "Reshape" , Reshape },
-            { "ScaleShift" , ScaleShift },
-            { "Clamp" , Clamp },
-            { "Concat" , Concat },
-            { "Copy", Copy },
-            { "Permute" , Permute },
-            { "Power" , Power},
-            { "Memory" , Memory },
-            { "Crop" , Crop },
-            { "LSTMCell", LSTMCell },
-            { "TensorIterator", TensorIterator }
-    };
-    auto it = LayerNameToType.find(str);
-    if (it != LayerNameToType.end())
-        return it->second;
-    else
-        return NO_TYPE;
-}
+static const InferenceEngine::details::caseless_map<std::string, GNAPluginNS::LayerType> LayerNameToType = {
+        { "Input" , Input },
+        { "Convolution" , Convolution },
+        { "ReLU" , ReLU },
+        { "Sigmoid" , Sigmoid },
+        { "TanH" , TanH },
+        { "Pooling" , Pooling },
+        { "FullyConnected" , FullyConnected },
+        { "InnerProduct" , InnerProduct},
+        { "Split" , Split },
+        { "Slice" , Slice },
+        { "Eltwise" , Eltwise },
+        { "Const" , Const },
+        { "Reshape" , Reshape },
+        { "Squeeze" , Squeeze },
+        { "ScaleShift" , ScaleShift },
+        { "Clamp" , Clamp },
+        { "Concat" , Concat },
+        { "Copy", Copy },
+        { "Permute" , Permute },
+        { "Power" , Power},
+        { "Memory" , Memory },
+        { "Crop" , Crop },
+        { "LSTMCell", LSTMCell },
+        { "TensorIterator", TensorIterator }
+};
+
+GNAPluginNS::LayerType LayerTypeFromStr(const std::string &str);
+bool AreLayersSupported(InferenceEngine::ICNNNetwork& network, std::string& errMessage);
 }  // namespace GNAPluginNS

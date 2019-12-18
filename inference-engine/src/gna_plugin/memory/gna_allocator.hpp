@@ -10,7 +10,7 @@
 #include <functional>
 
 #include "gna_device.hpp"
-#include "polymorh_allocator.hpp"
+#include "polymorph_allocator.hpp"
 
 namespace GNAPluginNS {
 namespace memory {

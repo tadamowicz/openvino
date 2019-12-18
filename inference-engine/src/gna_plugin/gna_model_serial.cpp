@@ -8,11 +8,13 @@
 #include <ios>
 #include <iomanip>
 #include <map>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <malloc.h>
+#else
 #include <mm_malloc.h>
 #endif
-#include "gna_plugin.hpp"
 
+#include "gna_plugin.hpp"
 #include "gna_model_serial.hpp"
 
 inline void writeNBytes(const void *ptr, uint32_t size, std::ostream & os) {
