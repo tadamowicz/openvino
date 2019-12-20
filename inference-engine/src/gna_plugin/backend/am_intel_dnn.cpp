@@ -8,7 +8,6 @@
 #include <set>
 #include <string>
 #include <algorithm>
-#include <unordered_set>
 
 #ifdef _WIN32
 #include <malloc.h>
@@ -21,6 +20,7 @@
 #include "gna_plugin_log.hpp"
 #include "dnn.hpp"
 #include "am_intel_dnn.hpp"
+#include "dnn_types.h"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
@@ -2296,7 +2296,7 @@ uint32_t GNAPluginNS::backend::AMIntelDNN::num_components() {
 
 uint32_t GNAPluginNS::backend::AMIntelDNN::num_gna_layers() {
     uint32_t num_layers = 0;
-    std::unordered_set<intel_dnn_operation_t> gna_layers({ kDnnAffineOp,
+    std::set<intel_dnn_operation_t> gna_layers({ kDnnAffineOp,
                                                 kDnnDiagonalOp,
                                                 kDnnConvolutional1dOp,
                                                 kDnnCopyOp,
