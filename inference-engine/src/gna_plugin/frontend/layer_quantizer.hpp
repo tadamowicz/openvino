@@ -6,6 +6,7 @@
 
 #include <string>
 #include <utility>
+#include <cmath>
 
 #include <gna-api-types-xnn.h>
 #include "gna_plugin_log.hpp"
