@@ -58,6 +58,7 @@ class GNAPlugin : public InferenceEngine::IInferencePluginInternal, public std::
     uint32_t *ptr_active_indices = nullptr;
     uint32_t num_active_indices = 0;
     uint32_t num_group_in = 0;
+    uint32_t dnn_dump_write_index = 0;
 
     // index matches iterating order of cnnnetwork outputs info
     std::vector<GNAPluginNS::OutputDesc> outputsDesc = std::vector<OutputDesc>();
