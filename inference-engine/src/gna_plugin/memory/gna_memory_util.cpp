@@ -1,16 +1,17 @@
 // Copyright (C) 2018-2019 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-// util.cpp : various utility functions for debugging, file i/o, etc.
-//
 
 #include <cinttypes>
 #include <cstring>
+#include <cstdint>
+
 #ifdef _WIN32
 #include <malloc.h>
 #else
 #include <mm_malloc.h>
 #endif
+
 #include <details/ie_exception.hpp>
 
 #include "gna_plugin_log.hpp"

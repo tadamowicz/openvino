@@ -8,6 +8,7 @@
 #include <set>
 #include <string>
 #include <algorithm>
+
 #ifdef _WIN32
 #include <malloc.h>
 #else
@@ -19,7 +20,7 @@
 #include "gna_plugin_log.hpp"
 #include "dnn.hpp"
 #include "am_intel_dnn.hpp"
-#include "dnn_dump.hpp"
+#include "dnn_types.h"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
@@ -27,14 +28,15 @@
 #include "gna2_model_debug_log.hpp"
 #else
 #include <gna-api-types-xnn.h>
+
 #endif
 
 using namespace GNAPluginNS::backend;
 
-void GNAPluginNS::backend::AMIntelDNN::BeginNewWrite() {
-    DNN_Dump::getInstance()->getDumpFolderId()++;
-}
 
+void GNAPluginNS::backend::AMIntelDNN::BeginNewWrite(uint32_t index) {
+    dump_write_index = index;
+}
 
 void GNAPluginNS::backend::AMIntelDNN::Init(void *ptr_memory,
                       uint32_t num_memory_bytes,
@@ -79,51 +81,6 @@ void GNAPluginNS::backend::AMIntelDNN::InitActiveList(uint32_t *ptr_active_list)
     }
 }
 
-void GNAPluginNS::backend::AMIntelDNN::AddComponents(uint32_t num_components_to_add) {
-    component.resize(component.size() + num_components_to_add);
-    for (uint32_t i = 0; i < num_components_to_add; i++) {
-        ClearComponent(component.size() - i - 1);
-    }
-}
-
-void GNAPluginNS::backend::AMIntelDNN::ClearComponent(uint32_t component_index) {
-    if (component_index > component.size() - 1) {
-        fprintf(stderr, "Error:  attempt to clear non-existent component!\n");
-        throw -1;
-    }
-    component[component_index].num_rows_in = 0;
-    component[component_index].num_columns_in = 0;
-    component[component_index].num_rows_out = 0;
-    component[component_index].num_columns_out = 0;
-    component[component_index].num_bytes_per_input = 0;
-    component[component_index].num_bytes_per_output = 0;
-    component[component_index].operation = kDnnNullOp;
-    component[component_index].macro_operation = kDnnMacroOpNone;
-    component[component_index].orientation_in = kDnnUnknownOrientation;
-    component[component_index].orientation_out = kDnnUnknownOrientation;
-    component[component_index].ptr_inputs = nullptr;
-    component[component_index].ptr_outputs = nullptr;
-    memset(&component[component_index].op, 0, sizeof(component[component_index].op));
-}
-
-void GNAPluginNS::backend::AMIntelDNN::ClearState() {
-    // To support recurrent networks, provide mechanism to clear persistent state
-    // (e.g., between utterances for speech recognition).  For recurrent component,
-    // this means clearing the feedback buffer.  For other components, just clear the
-    // output buffer since any feedback will come from some component's output.
-    for (uint32_t i = 0; i < component.size(); i++) {
-        if (component[i].operation == kDnnRecurrentOp) {
-            memset(component[i].op.recurrent.ptr_feedbacks,
-                   0,
-                   component[i].op.recurrent.num_vector_delay * component[i].num_columns_out
-                   * component[i].num_bytes_per_input);
-        } else {
-            memset(component[i].ptr_outputs,
-                   0,
-                   component[i].num_bytes_per_output * component[i].num_rows_out * component[i].num_columns_out);
-        }
-    }
-}
 
 void GNAPluginNS::backend::AMIntelDNN::InitAffineComponentPrivate(intel_dnn_component_t &comp,
                                             uint32_t num_rows_in,
@@ -169,40 +126,6 @@ void GNAPluginNS::backend::AMIntelDNN::InitAffineComponentPrivate(intel_dnn_comp
     }
 }
 
-void GNAPluginNS::backend::AMIntelDNN::InitDiagonalComponent(uint32_t component_index,
-                                       uint32_t num_rows_in,
-                                       uint32_t num_columns,
-                                       uint32_t num_rows_out,
-                                       uint32_t num_bytes_per_input,
-                                       uint32_t num_bytes_per_output,
-                                       uint32_t num_bytes_per_weight,
-                                       uint32_t num_bytes_per_bias,
-                                       float weight_scale_factor,
-                                       float output_scale_factor,
-                                       void *ptr_inputs,
-                                       void *ptr_outputs,
-                                       void *ptr_weights,
-                                       void *ptr_biases) {
-    component[component_index].num_rows_in = num_rows_in;
-    component[component_index].num_columns_in = num_columns;
-    component[component_index].num_rows_out = num_rows_out;
-    component[component_index].num_columns_out = num_columns;
-    component[component_index].num_bytes_per_input = num_bytes_per_input;
-    component[component_index].num_bytes_per_output = num_bytes_per_output;
-    component[component_index].operation = kDnnDiagonalOp;
-    component[component_index].macro_operation = kDnnMacroOpNone;
-    component[component_index].orientation_in = kDnnInterleavedOrientation;
-    component[component_index].orientation_out = kDnnInterleavedOrientation;
-    component[component_index].ptr_inputs = ptr_inputs;
-    component[component_index].ptr_outputs = ptr_outputs;
-    component[component_index].op.affine.num_bytes_per_weight = num_bytes_per_weight;
-    component[component_index].op.affine.num_bytes_per_bias = num_bytes_per_bias;
-    component[component_index].op.affine.weight_scale_factor = weight_scale_factor;
-    component[component_index].output_scale_factor = output_scale_factor;
-    component[component_index].input_scale_factor = output_scale_factor / weight_scale_factor;
-    component[component_index].op.affine.ptr_weights = ptr_weights;
-    component[component_index].op.affine.ptr_biases = ptr_biases;
-}
 
 void GNAPluginNS::backend::AMIntelDNN::InitConvolutional1DComponentPrivate(intel_dnn_component_t &comp,
                                                  uint32_t num_rows_in,
@@ -386,109 +309,6 @@ void GNAPluginNS::backend::AMIntelDNN::InitPiecewiseLinearComponentPrivate(intel
     }
 }
 
-void GNAPluginNS::backend::AMIntelDNN::InitRecurrentComponent(uint32_t component_index,
-                                        uint32_t num_rows,
-                                        uint32_t num_columns_in,
-                                        uint32_t num_columns_out,
-                                        uint32_t num_bytes_per_input,
-                                        uint32_t num_bytes_per_output,
-                                        uint32_t num_vector_delay,
-                                        uint32_t num_bytes_per_weight,
-                                        uint32_t num_bytes_per_bias,
-                                        float weight_scale_factor,
-                                        float output_scale_factor,
-                                        void *ptr_inputs,
-                                        void *ptr_feedbacks,
-                                        void *ptr_outputs,
-                                        void *ptr_weights,
-                                        void *ptr_biases) {
-    component[component_index].num_rows_in = num_rows;
-    component[component_index].num_columns_in = num_columns_in;
-    component[component_index].num_rows_out = num_rows;
-    component[component_index].num_columns_out = num_columns_out;
-    component[component_index].num_bytes_per_input = num_bytes_per_input;
-    component[component_index].num_bytes_per_output = num_bytes_per_output;
-    component[component_index].operation = kDnnRecurrentOp;
-    component[component_index].macro_operation = kDnnMacroOpNone;
-    component[component_index].orientation_in = kDnnNonInterleavedOrientation;
-    component[component_index].orientation_out = kDnnNonInterleavedOrientation;
-    component[component_index].ptr_inputs = ptr_inputs;
-    component[component_index].ptr_outputs = ptr_outputs;
-    component[component_index].op.recurrent.num_vector_delay = num_vector_delay;
-    component[component_index].op.recurrent.num_bytes_per_weight = num_bytes_per_weight;
-    component[component_index].op.recurrent.num_bytes_per_bias = num_bytes_per_bias;
-    component[component_index].op.recurrent.weight_scale_factor = weight_scale_factor;
-    component[component_index].output_scale_factor = output_scale_factor;
-    component[component_index].input_scale_factor = output_scale_factor / weight_scale_factor;
-    component[component_index].op.recurrent.ptr_feedbacks = ptr_feedbacks;
-    component[component_index].op.recurrent.ptr_weights = ptr_weights;
-    component[component_index].op.recurrent.ptr_biases = ptr_biases;
-}
-
-void GNAPluginNS::backend::AMIntelDNN::InitInterleaveComponent(uint32_t component_index, uint32_t num_rows, uint32_t num_columns,
-                                         uint32_t num_bytes_per_input, uint32_t num_bytes_per_output,
-                                         float output_scale_factor, void *ptr_inputs, void *ptr_outputs) {
-    component[component_index].num_rows_in = num_rows;
-    component[component_index].num_columns_in = num_columns;
-    component[component_index].num_rows_out = num_columns;
-    component[component_index].num_columns_out = num_rows;
-    component[component_index].num_bytes_per_input = num_bytes_per_input;
-    component[component_index].num_bytes_per_output = num_bytes_per_output;
-    component[component_index].operation = kDnnInterleaveOp;
-    component[component_index].macro_operation = kDnnMacroOpNone;
-    component[component_index].orientation_in = kDnnNonInterleavedOrientation;
-    component[component_index].orientation_out = kDnnInterleavedOrientation;
-    component[component_index].ptr_inputs = ptr_inputs;
-    component[component_index].ptr_outputs = ptr_outputs;
-    component[component_index].output_scale_factor = output_scale_factor;
-    component[component_index].input_scale_factor = output_scale_factor;
-}
-
-void GNAPluginNS::backend::AMIntelDNN::InitDeinterleaveComponent(uint32_t component_index, uint32_t num_rows, uint32_t num_columns,
-                                           uint32_t num_bytes_per_input, uint32_t num_bytes_per_output,
-                                           float output_scale_factor, void *ptr_inputs, void *ptr_outputs) {
-    component[component_index].num_rows_in = num_rows;
-    component[component_index].num_columns_in = num_columns;
-    component[component_index].num_rows_out = num_columns;
-    component[component_index].num_columns_out = num_rows;
-    component[component_index].num_bytes_per_input = num_bytes_per_input;
-    component[component_index].num_bytes_per_output = num_bytes_per_output;
-    component[component_index].operation = kDnnDeinterleaveOp;
-    component[component_index].macro_operation = kDnnMacroOpNone;
-    component[component_index].orientation_in = kDnnInterleavedOrientation;
-    component[component_index].orientation_out = kDnnNonInterleavedOrientation;
-    component[component_index].ptr_inputs = ptr_inputs;
-    component[component_index].ptr_outputs = ptr_outputs;
-    component[component_index].output_scale_factor = output_scale_factor;
-    component[component_index].input_scale_factor = output_scale_factor;
-}
-
-uint32_t GNAPluginNS::backend::AMIntelDNN::CopyActiveList(std::vector<std::vector<uint32_t> > &active_list, uint32_t list_index) {
-    if (component[component.size() - 1].orientation_out == kDnnInterleavedOrientation) {
-        num_active_outputs_ = component[component.size() - 1].num_rows_out;
-    } else {
-        num_active_outputs_ = component[component.size() - 1].num_columns_out;
-    }
-
-    if (!active_list.empty()) {
-        if (list_index >= active_list.size()) {
-            fprintf(stderr, "Index %d beyond end of active list in CopyActiveList()\n", list_index);
-            throw -1;
-        }
-        if (active_list[list_index].size() > component[component.size() - 1].num_rows_out) {
-            fprintf(stderr, "Active list too large in CopyActiveList()\n");
-            throw -1;
-        }
-
-        if (ptr_active_outputs_ != nullptr) {
-            num_active_outputs_ = active_list[list_index].size();
-            ie_memcpy(ptr_active_outputs_, num_active_outputs_ * sizeof(uint32_t),
-                active_list[list_index].data(), num_active_outputs_ * sizeof(uint32_t));
-        }
-    }
-
-    return (num_active_outputs_);
-}
 
 void GNAPluginNS::backend::AMIntelDNN::Propagate() {
     for (uint32_t i = 0; i < component.size(); i++) {
@@ -548,212 +368,11 @@ void GNAPluginNS::backend::AMIntelDNN::Propagate() {
     }
 }
 
-intel_dnn_macro_operation_t GNAPluginNS::backend::AMIntelDNN::MacroOperation(uint32_t component_index) {
-    return (component[component_index].macro_operation);
-}
-
-void GNAPluginNS::backend::AMIntelDNN::SetMacroOperation(uint32_t component_index, intel_dnn_macro_operation_t macro_operation) {
-    component[component_index].macro_operation = macro_operation;
-}
-
-float GNAPluginNS::backend::AMIntelDNN::InputScaleFactor(uint32_t component_index) {
-    float scale_factor = 1.0;
-
-    if (component_index == 0) {
-        scale_factor = input_scale_factor_;
-    } else {
-        if (component[component_index - 1].operation == kDnnAffineOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        } else if (component[component_index - 1].operation == kDnnDiagonalOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        } else if (component[component_index - 1].operation == kDnnConvolutional1dOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        } else if (component[component_index - 1].operation == kDnnRecurrentOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        } else if (component[component_index - 1].operation == kDnnInterleaveOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        } else if (component[component_index - 1].operation == kDnnDeinterleaveOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        } else if (component[component_index - 1].operation == kDnnCopyOp) {
-            scale_factor = component[component_index - 1].output_scale_factor;
-        }
-    }
-
-    return (scale_factor);
-}
-
-float GNAPluginNS::backend::AMIntelDNN::WeightScaleFactor(uint32_t component_index) {
-    float scale_factor = 1.0;
-
-    if (component[component_index].operation == kDnnAffineOp) {
-        scale_factor = component[component_index].op.affine.weight_scale_factor;
-    } else if (component[component_index].operation == kDnnDiagonalOp) {
-        scale_factor = component[component_index].op.affine.weight_scale_factor;
-    } else if (component[component_index].operation == kDnnConvolutional1dOp) {
-        scale_factor = component[component_index].op.conv1D.weight_scale_factor;
-    } else if (component[component_index].operation == kDnnRecurrentOp) {
-        scale_factor = component[component_index].op.recurrent.weight_scale_factor;
-    }
-
-    return (scale_factor);
-}
 
 float GNAPluginNS::backend::AMIntelDNN::OutputScaleFactor(intel_dnn_component_t &comp) {
     return comp.output_scale_factor;
 }
 
-void GNAPluginNS::backend::AMIntelDNN::SetOutputScaleFactor(uint32_t component_index, float scale_factor) {
-    component[component_index].output_scale_factor = scale_factor;
-}
-
-void GNAPluginNS::backend::AMIntelDNN::PrintOutputs(uint32_t component_index) {
-    float scale_factor = OutputScaleFactor(component_index);
-    uint32_t num_rows = component[component_index].num_rows_out;
-    uint32_t num_columns = component[component_index].num_columns_out;
-
-    printf("component %d : %s\n", component_index, intel_dnn_operation_name[component[component_index].operation]);
-    if (number_type_ == kDnnFloat) {
-        auto ptr_output = reinterpret_cast<float *>(component[component_index].ptr_outputs);
-        for (int i = 0; i < num_rows; i++) {
-            for (int j = 0; j < num_columns; j++) {
-                printf("%d %d : %e\n", i, j, ptr_output[i * num_columns + j] / scale_factor);
-            }
-        }
-    } else {
-        switch (component[component_index].num_bytes_per_output) {
-            case 1: {
-                auto ptr_output = reinterpret_cast<int8_t *>(component[component_index].ptr_outputs);
-                for (int i = 0; i < num_rows; i++) {
-                    for (int j = 0; j < num_columns; j++) {
-                        printf("%d %d : %e\n", i, j, static_cast<float>(ptr_output[i * num_columns + j]) / scale_factor);
-                    }
-                }
-            }
-                break;
-            case 2: {
-                auto ptr_output = reinterpret_cast<int16_t *>(component[component_index].ptr_outputs);
-                for (int i = 0; i < num_rows; i++) {
-                    for (int j = 0; j < num_columns; j++) {
-                        printf("%d %d : %e\n", i, j, static_cast<float>(ptr_output[i * num_columns + j]) / scale_factor);
-                    }
-                }
-            }
-                break;
-            case 4: {
-                auto ptr_output = reinterpret_cast<int32_t *>(component[component_index].ptr_outputs);
-                for (int i = 0; i < num_rows; i++) {
-                    for (int j = 0; j < num_columns; j++) {
-                        printf("%d %d : %e\n", i, j, static_cast<float>(ptr_output[i * num_columns + j]) / scale_factor);
-                    }
-                }
-            }
-                break;
-            default:
-                fprintf(stderr,
-                        "Bad num_bytes_per_output in component %d in GNAPluginNS::backend::AMIntelDNN::PrintOutputs()\n",
-                        component_index);
-                throw -1;
-        }
-    }
-}
-
-uint32_t GNAPluginNS::backend::AMIntelDNN::CompareScores(void *ptr_refscorearray, intel_score_error_t *score_error, uint32_t num_frames) {
-    intel_dnn_component_t *ptr_component = &component[component.size() - 1];
-    intel_dnn_orientation_t orientation = ptr_component->orientation_out;
-    float scale_factor = OutputScaleFactor(component.size() - 1);
-    uint32_t num_errors = 0;
-    uint32_t num_rows = (orientation == kDnnInterleavedOrientation) ? ptr_component->num_rows_out : num_frames;
-    uint32_t num_columns = (orientation == kDnnInterleavedOrientation) ? num_frames : ptr_component->num_columns_out;
-    uint32_t num_row_step_ref =
-            (orientation == kDnnInterleavedOrientation) ? ptr_component->num_rows_out : ptr_component->num_columns_out;
-    uint32_t num_row_step = ptr_component->num_columns_out;
-
-    if (ptr_component->operation == kDnnAffineOp) {
-        num_rows = num_active_outputs_;
-    }
-
-    ClearScoreError(score_error);
-
-    if (number_type_ == kDnnFloat) {
-        auto A = reinterpret_cast<float *>(ptr_component->ptr_outputs);
-        auto B = reinterpret_cast<float *>(ptr_refscorearray);
-        for (int i = 0; i < num_rows; i++) {
-            for (int j = 0; j < num_columns; j++) {
-                float score = A[i * num_row_step + j];
-                float refscore =
-                        (orientation == kDnnInterleavedOrientation) ? B[j * num_row_step_ref + i] : B[i * num_row_step_ref
-                                                                                                      + j];
-                float scaled_score = score / scale_factor;
-                float error = fabs(refscore - scaled_score);
-                float rel_error = error / (fabs(refscore) + 1e-20);
-                float squared_error = error * error;
-                float squared_rel_error = rel_error * rel_error;
-                score_error->num_scores++;
-                score_error->sum_error += error;
-                score_error->sum_squared_error += squared_error;
-                if (error > score_error->max_error) {
-                    score_error->max_error = error;
-                }
-                score_error->sum_rel_error += rel_error;
-                score_error->sum_squared_rel_error += squared_rel_error;
-                if (rel_error > score_error->max_rel_error) {
-                    score_error->max_rel_error = rel_error;
-                }
-                if (error > score_error->threshold) {
-                    num_errors++;
-                }
-            }
-        }
-    } else if (number_type_ == kDnnInt) {
-        auto B = reinterpret_cast<float *>(ptr_refscorearray);
-        for (int i = 0; i < num_rows; i++) {
-            for (int j = 0; j < num_columns; j++) {
-                float score;
-                if (ptr_component->num_bytes_per_output == 4) {
-                    auto A = reinterpret_cast<int32_t *>(ptr_component->ptr_outputs);
-                    score = static_cast<float>(A[i * num_row_step + j]);
-                } else if (ptr_component->num_bytes_per_output == 2) {
-                    auto A = reinterpret_cast<int16_t *>(ptr_component->ptr_outputs);
-                    score = static_cast<float>(A[i * num_row_step + j]);
-                } else {
-                    fprintf(stderr,
-                            "Unsupported output width (%d) in GNAPluginNS::backend::AMIntelDNN::CompareScores()!\n",
-                            ptr_component->num_bytes_per_output);
-                    throw -1;
-                }
-                float refscore =
-                        (orientation == kDnnInterleavedOrientation) ? B[j * num_row_step_ref + i] : B[i * num_row_step_ref
-                                                                                                      + j];
-                float scaled_score = score / scale_factor;
-                float error = fabs(refscore - scaled_score);
-                float rel_error = error / (fabs(refscore) + 1e-20);
-                float squared_error = error * error;
-                float squared_rel_error = rel_error * rel_error;
-                score_error->num_scores++;
-                score_error->sum_error += error;
-                score_error->sum_squared_error += squared_error;
-                if (error > score_error->max_error) {
-                    score_error->max_error = error;
-                }
-                score_error->sum_rel_error += rel_error;
-                score_error->sum_squared_rel_error += squared_rel_error;
-                if (rel_error > score_error->max_rel_error) {
-                    score_error->max_rel_error = rel_error;
-                }
-                if (error > score_error->threshold) {
-                    num_errors++;
-                }
-            }
-        }
-    } else {
-        fprintf(stderr, "Unknown number type in GNAPluginNS::backend::AMIntelDNN::CompareScores()!\n");
-        throw -1;
-    }
-
-    score_error->num_errors = num_errors;
-
-    return (num_errors);
-}
 
 void GNAPluginNS::backend::AMIntelDNN::WriteGraphWizModel(const char *filename) {
     auto & components = component;
@@ -982,10 +601,8 @@ void GNAPluginNS::backend::AMIntelDNN::WriteDnnText(const char *filename, intel_
     std::ofstream out_file((std::string(filename) + ".light").c_str(), std::ios::out);
 #endif
     if (out_file.good()) {
-        uint32_t num_inputs = component[0].num_rows_in;
-        uint32_t num_outputs =
-                (component[component.size() - 1].orientation_out == kDnnInterleavedOrientation) ? component[
-                        component.size() - 1].num_rows_out : component[component.size() - 1].num_columns_out;
+        uint32_t num_inputs = this->num_inputs();
+        uint32_t num_outputs = this->num_outputs();
         uint32_t num_layers = num_gna_layers();
         uint32_t num_group = this->num_group_in();
         uint32_t layer = 0;
@@ -1001,7 +618,7 @@ void GNAPluginNS::backend::AMIntelDNN::WriteDnnText(const char *filename, intel_
         for (uint32_t i = 0; i < component.size(); i++) {
 #ifdef LIGHT_DUMP
             std::stringstream out_file_name;
-            out_file_name << DNN_Dump::getInstance()->getDumpFolderName() << std::setfill('0') << std::setw(2) << i << "_"
+            out_file_name << getDumpFolderName() << std::setfill('0') << std::setw(2) << i << "_"
                           << intel_dnn_operation_name[component[i].operation]
                           << "-" << component[i].num_rows_in
                           << "-" << component[i].num_rows_out;
@@ -2053,35 +1670,8 @@ void GNAPluginNS::backend::AMIntelDNN::DestroyGNAStruct(intel_nnet_type_t *ptr_n
     ptr_nnet->nLayers = 0;
 }
 #endif
-void GNAPluginNS::backend::AMIntelDNN::GetScaledOutput(float *ptr_output, uint32_t component_index) {
-    if (component_index > num_components()) {
-        fprintf(stderr, "Illegal component index %d in GetScaledOutput\n", component_index);
-        throw -1;
-    }
-    if (ptr_output != nullptr) {
-        float scale_factor = OutputScaleFactor(component_index);
-        uint32_t num_elements = component[component_index].num_rows_out * component[component_index].num_columns_out;
-        if (number_type_ == kDnnFloat) {
-            float *ptr_input = reinterpret_cast<float *>(component[component_index].ptr_outputs);
-            for (uint32_t i = 0; i < num_elements; i++) {
-                ptr_output[i] = ptr_input[i] / scale_factor;
-            }
-        } else if (component[component_index].num_bytes_per_output == 2) {
-            int16_t *ptr_input = reinterpret_cast<int16_t *>(component[component_index].ptr_outputs);
-            for (uint32_t i = 0; i < num_elements; i++) {
-                ptr_output[i] = static_cast<float>(ptr_input[i]) / scale_factor;
-            }
-        } else {
-            int32_t *ptr_input = reinterpret_cast<int32_t *>(component[component_index].ptr_outputs);
-            for (uint32_t i = 0; i < num_elements; i++) {
-                ptr_output[i] = static_cast<float>(ptr_input[i]) / scale_factor;
-            }
-        }
-    } else {
-        fprintf(stderr, "Output pointer is nullptr in GetScaledOutput\n");
-        throw -1;
-    }
-}
+
+
 #if GNA_LIB_VER == 1
 void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(intel_nnet_type_t * nnet) {
 #ifdef LIGHT_DUMP
@@ -2106,11 +1696,11 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(intel_nnet_typ
                           << "-" << nnet->pLayers[i].nInputRows
                           << "-" << nnet->pLayers[i].nOutputRows;
 
-            auto dumpFilePrefixGNA = DNN_Dump::getInstance()->getDumpFilePrefixGNA();
+            auto dumpFilePrefixGNA = getDumpFilePrefixGNA();
             auto inputfileName = dumpFilePrefixGNA + out_file_name.str() + "_input.txt";
             auto outFileName = dumpFilePrefixGNA + out_file_name.str() + "_output.txt";
             auto pwlFileName = dumpFilePrefixGNA + out_file_name.str() + "_pwl.txt";
-            auto refOutputFileName = DNN_Dump::getInstance()->getRefFolderName() + out_file_name.str() + "_output.txt";
+            auto refOutputFileName = getRefFolderName() + out_file_name.str() + "_output.txt";
 
 
 
@@ -2193,7 +1783,10 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(intel_nnet_typ
 #else
 void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputTextGNA(const Gna2Model & model) {
 #ifdef LIGHT_DUMP
-    WriteInputAndOutputTextGNAImpl(model, getDumpFilePrefixGNA(), getRefFolderName());
+    WriteInputAndOutputTextGNAImpl(
+        model,
+        getDumpFilePrefixGNA(),
+        getRefFolderName());
 #endif
 }
 #endif
@@ -2209,9 +1802,9 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputText() {
         if (component[i].operation == kDnnPiecewiselinearOp) {
             out_file_name << "-" << intel_dnn_activation_name[component[i].op.pwl.func_id];
         }
-        auto inputfileName = DNN_Dump::getInstance()->getDumpFolderName() + out_file_name.str() + "_input.txt";
-        auto outFileName = DNN_Dump::getInstance()->getDumpFolderName() + out_file_name.str() + "_output.txt";
-        auto refOutputFileName = DNN_Dump::getInstance()->getRefFolderName() + out_file_name.str() + "_output.txt";
+        auto inputfileName = getDumpFolderName() + out_file_name.str() + "_input.txt";
+        auto outFileName = getDumpFolderName() + out_file_name.str() + "_output.txt";
+        auto refOutputFileName = getRefFolderName() + out_file_name.str() + "_output.txt";
 
         std::ofstream out_file(outFileName.c_str(), std::ios::out);
         std::ifstream ref_out_file(refOutputFileName.c_str(), std::ios::in);
@@ -2285,4 +1878,67 @@ void GNAPluginNS::backend::AMIntelDNN::WriteInputAndOutputText() {
         }
 #endif
     }
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_components() {
+    return static_cast<uint32_t>(component.size());
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_gna_layers() {
+    uint32_t num_layers = 0;
+    std::set<intel_dnn_operation_t> gna_layers({ kDnnAffineOp,
+                                                kDnnDiagonalOp,
+                                                kDnnConvolutional1dOp,
+                                                kDnnCopyOp,
+                                                kDnnDeinterleaveOp,
+                                                kDnnInterleaveOp,
+                                                kDnnRecurrentOp });
+    for (auto & i : component) {
+        if (gna_layers.find(i.operation) != gna_layers.end()) {
+            num_layers++;
+        }
+    }
+    return num_layers;
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_group_in() {
+    return ((!component.empty()) ? ((component[0].orientation_in == kDnnInterleavedOrientation)
+                                    ? component[0].num_columns_in : component[0].num_rows_in) : 0);
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_group_out() {
+    return ((!component.empty()) ? ((component[component.size() - 1].orientation_out == kDnnInterleavedOrientation)
+                                    ? component[component.size() - 1].num_columns_out : component[component.size() -
+                                                                                                  1].num_rows_out) : 0);
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_inputs() {
+    return component.empty() ? 0 : component[0].num_rows_in;
+}
+
+uint32_t GNAPluginNS::backend::AMIntelDNN::num_outputs() {
+    return (component[component.size() - 1].orientation_out == kDnnInterleavedOrientation) ? component[
+            component.size() - 1].num_rows_out : component[component.size() - 1].num_columns_out;
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getDumpFilePrefix(const std::string& folder) {
+    const char pathSeparator =
+#ifdef _WIN32
+            '\\';
+#else
+            '/';
+#endif
+    return std::string(".") + pathSeparator + folder + pathSeparator + std::to_string(dump_write_index) + pathSeparator;
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getDumpFilePrefixGNA() {
+    return getDumpFilePrefix("gna_layers");
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getDumpFolderName() {
+    return getDumpFilePrefix("layers");
+}
+
+std::string GNAPluginNS::backend::AMIntelDNN::getRefFolderName() {
+    return getDumpFilePrefix("ref_layers");
 }
