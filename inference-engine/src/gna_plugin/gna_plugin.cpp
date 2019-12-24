@@ -319,6 +319,24 @@ void GNAPlugin::Init() {
     graphCompiler.setGNAFlagsPtr(gnaFlags);
 }
 
+void GNAPlugin::InitGNADevice() {
+#if GNA_LIB_VER == 1
+    gnadevice = std::make_shared<GNADeviceHelper>(gna_proc_type,
+                                        gnaFlags->gna_lib_async_threads_num,
+                                        gnaFlags->gna_openmp_multithreading,
+                                        gnaFlags->performance_counting);
+#else
+    gnadevice = std::make_shared<GNADeviceHelper>(pluginGna2AccMode,
+                pluginGna2DeviceConsistent,
+                gnaFlags->gna_lib_async_threads_num,
+                gnaFlags->gna_openmp_multithreading,
+                gnaFlags->performance_counting);
+#endif
+    size_t page_size_bytes = 4096;
+    gnamem = std::make_shared<gna_memory_type>(memory::make_polymorph<memory::GNAAllocator>(gnadevice), page_size_bytes);
+    graphCompiler.setGNAMemoryPtr(gnamem);
+}
+
 void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     // move blobs from Constant layers to Convolution, Deconvolution, FullyConnected layers attributes
     BlobTransformation blobsTransformation;
@@ -437,25 +455,12 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     auto networkPrecision = newNet->getPrecision();
 
-    if (!gnaFlags->sw_fp32) {
-#if GNA_LIB_VER == 1
-        gnadevice.reset(new GNADeviceHelper(gna_proc_type,
-                                            gnaFlags->gna_lib_async_threads_num,
-                                            gnaFlags->gna_openmp_multithreading,
-                                            gnaFlags->performance_counting));
-#else
-        gnadevice.reset(new GNADeviceHelper(pluginGna2AccMode,
-                pluginGna2DeviceConsistent,
-                gnaFlags->gna_lib_async_threads_num,
-                gnaFlags->gna_openmp_multithreading,
-                gnaFlags->performance_counting));
-#endif
-        gnamem.reset(new gna_memory_type(
-                memory::make_polymorph<memory::GNAAllocator>(gnadevice), PAGE_SIZE_BYTES));
-    } else {
+    if (gnaFlags->sw_fp32) {
         gnamem.reset(new gna_memory_type(memory::make_polymorph<std::allocator<uint8_t>>()));
+        graphCompiler.setGNAMemoryPtr(gnamem);
+    } else {
+        InitGNADevice();
     }
-    graphCompiler.setGNAMemoryPtr(gnamem);
 
     // keep inputs information and create input primitives
     newNet->getInputsInfo(inputsDataMap);
@@ -1059,17 +1064,8 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     }
 
     auto header = GNAModelSerial::ReadHeader(inputStream);
-#if GNA_LIB_VER == 1
-    gnadevice.reset(new GNADeviceHelper(gna_proc_type,
-                                        gnaFlags->gna_lib_async_threads_num,
-                                        gnaFlags-> gna_openmp_multithreading));
-#else
-    gnadevice.reset(new GNADeviceHelper(pluginGna2AccMode,
-            pluginGna2DeviceConsistent,
-            gnaFlags->gna_lib_async_threads_num,
-            gnaFlags->gna_openmp_multithreading));
-#endif
-    gnamem.reset(new gna_memory_type(memory::make_polymorph<memory::GNAAllocator>(gnadevice), PAGE_SIZE_BYTES));
+
+    InitGNADevice();
 
     graphCompiler.setGNAMemoryPtr(gnamem);
     void *basePtr = nullptr;
