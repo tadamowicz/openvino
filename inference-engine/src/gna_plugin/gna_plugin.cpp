@@ -1168,6 +1168,7 @@ void GNAPlugin::Export(const std::string &fileName) {
     std::fstream outStream(fileName, ios_base::out | ios_base::binary);
 
     // TODO: nnet group parameter looks only used in application - so can we move this line into load network.
+    IE_ASSERT(!inputsDataMap.empty());
     auto inputDims = inputsDataMap.begin()->second->getTensorDesc().getDims();
     if (inputDims.size() == 2) {
 #if GNA_LIB_VER == 1
