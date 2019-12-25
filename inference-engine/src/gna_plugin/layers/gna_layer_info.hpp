@@ -189,6 +189,7 @@ class LayerInfo {
                                                                          "Convolution"};
         if (layersWithPossiblePadding.find(layer->type) != layersWithPossiblePadding.end()) {
             size_t size_without_padding = 0;
+            IE_ASSERT(!layer->insData.empty());
             auto inputs = layer->insData.begin()->lock();
             if (inputs) {
                 size_without_padding = InferenceEngine::details::product(begin(inputs->getTensorDesc().getDims()),
