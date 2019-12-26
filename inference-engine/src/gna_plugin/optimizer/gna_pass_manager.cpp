@@ -66,6 +66,7 @@ static void insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
     // TODO: diagonal size
     auto dimsIndex = nextLayer->outData[0]->getTensorDesc().getDims().size() - 1;
     std::vector<float> weightsValues(nextLayer->outData[0]->getTensorDesc().getDims()[dimsIndex], fillValue);
+    IE_ASSERT(diagLayer != nullptr);
     diagLayer->_weights = make_shared_blob<float>(
             TensorDesc(
                 nextLayer->outData[0]->getTensorDesc().getPrecision(),
@@ -186,8 +187,6 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
 }
 
 void InsertDiagonalLayerPass::run() {
-    int numOfDiagLayers = 0;
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
     for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
         auto prevLayer = CNNNetPrevLayer(l);
@@ -327,11 +326,12 @@ void SubstitutePReluPass::run() {
         // sum
         auto sum = getNext(negate);
         if (!LayerInfo(sum).isEltwiseSum()) continue;
+        if (sum->insData.size() != 2) continue;
+
         auto inData_0 = sum->insData[0].lock();
+        IE_ASSERT(inData_0 != nullptr);
         auto inData_1 = sum->insData[1].lock();
-        if (sum->insData.size() != 2
-                || inData_0 == nullptr
-                || inData_1 == nullptr) continue;
+        IE_ASSERT(inData_1 != nullptr);
 
         auto s1 = inData_0->getCreatorLayer().lock().get();
         auto s2 = inData_1->getCreatorLayer().lock().get();
@@ -791,6 +791,8 @@ void InsertSplitAligningFilterPass::run() {
                 size_t newOutputSize = (currentOffset + ALIGN(outputSize, 8) * bytesPerSplitElement - aligned64_offset)
                                        / bytesPerSplitElement;
 
+                IE_ASSERT(filterLayer != nullptr);
+
                 // encodes offset to beginning of split layer input
                 filterLayer->params["offset"] = std::to_string(aligned64_offset / bytesPerSplitElement);
 
@@ -838,7 +840,6 @@ void InsertSplitAligningFilterPass::run() {
 }
 
 void SubstituteScaleShiftBroadCastPass::run() {
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
     for (auto & l : *pLayers) {
         LayerInfo layerInfo(l);
 
