@@ -50,7 +50,7 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
         auto plg = std::make_shared<GNAPlugin>();
         try {
             plg->SetConfig(config);
-        } catch (InferenceEngine::details::InferenceEngineException& e) {}
+        } catch (InferenceEngine::details::InferenceEngineException) {}
         plg->QueryNetwork(network, config, res);
     }
 

@@ -372,7 +372,6 @@ class DataQuantizer<Desc, InferenceEngine::CNNLayer *> : public DataQuantizerBas
             outData->setPrecision(Desc::mandatory().getOutputPrecision());
         }
         // set scale factor for input layers
-        auto quantData = InferenceEngine::getInjectedData<QuantizedLayerParams>(*cnnLayer);
         if (cnnLayer->insData.empty()) {
             for (auto &&outData : cnnLayer->outData) {
                 outData->setPrecision(Desc::mandatory().getInputPrecision());

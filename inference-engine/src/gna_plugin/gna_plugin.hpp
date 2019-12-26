@@ -148,8 +148,8 @@ void createRequestConfigsForGnaModels();
     /**
      * utility to provide input and output blobs externally to be used by InferenceEngine request API clients
      */
-    InferenceEngine::Blob::Ptr GetInputBlob(std::string name, InferenceEngine::Precision precision);
-    InferenceEngine::Blob::Ptr GetOutputBlob(std::string name, InferenceEngine::Precision precision);
+    InferenceEngine::Blob::Ptr GetInputBlob(const std::string& name, InferenceEngine::Precision precision);
+    InferenceEngine::Blob::Ptr GetOutputBlob(const std::string& name, InferenceEngine::Precision precision);
     /**
      * helpers to provide inputs info on AOT network
      */
