@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <ie_parameter.hpp>
 #include "gna_plugin.hpp"
 #include "gna/gna_config.hpp"
 
@@ -15,9 +16,6 @@ using namespace GNAPluginNS;
 using namespace InferenceEngine;
 using namespace InferenceEngine::PluginConfigParams;
 
-using ConfigOptions = std::map<std::string, Parameter>;
-using CConfigOptions = const ConfigOptions;
-
 Parameter GNAPlugin::GetConfig(const std::string& name, const std::map<std::string, Parameter> & options) const {
     auto configKeys = supportedConfigKeysWithDefaults();
     auto result = configKeys.find(name);
@@ -27,7 +25,7 @@ Parameter GNAPlugin::GetConfig(const std::string& name, const std::map<std::stri
     return result->second;
 }
 
-Parameter GNAPlugin::GetMetric(const std::string& name, CConfigOptions & options) const {
+Parameter GNAPlugin::GetMetric(const std::string& name, const std::map<std::string, InferenceEngine::Parameter> & options) const {
     const std::unordered_map<std::string, std::function<Parameter()>> queryApiSupported = {
         {METRIC_KEY(AVAILABLE_DEVICES), [this]() {return GetAvailableDevices();}},
         {METRIC_KEY(SUPPORTED_CONFIG_KEYS), [this]() {return supportedConfigKeys();}},
