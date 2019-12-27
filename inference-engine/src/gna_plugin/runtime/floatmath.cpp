@@ -66,7 +66,7 @@ void cblas_ssbmv1(const CBLAS_LAYOUT Layout, const CBLAS_UPLO Uplo,
                   const MKL_INT N, const MKL_INT K, const float alpha, const float *A,
                   const MKL_INT lda, const float *X, const MKL_INT incX,
                   const float beta, float *Y, const MKL_INT incY) {
-    int i, j, k;
+    int i;
 
     if (Layout != CblasRowMajor) {
         fprintf(stderr, "Only row major is supported in cblas_ssbmv!\n");

@@ -331,7 +331,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     }
 
     // network optimisation phases
-    auto run_passes = [&] (CNNNetPtr network, bool runBeforeCopy) {
+    auto run_passes = [&] (const CNNNetPtr& network, bool runBeforeCopy) {
         auto passes = make_shared<PassManager>(policy, network, runBeforeCopy);
         passes->registerPass<RemoveConstPass>();
         passes->registerPass<UnrollTIPass>();
@@ -474,8 +474,8 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     }
 
     // CreatingLayer primitives
-    for (auto layer = sortedNoMem.begin(); layer != sortedNoMem.end(); ++layer) {
-        graphCompiler.CreateLayerPrimitive(*layer);
+    for (auto & layer : sortedNoMem) {
+        graphCompiler.CreateLayerPrimitive(layer);
     }
     for (auto& inputLayer : inputLayers) {
         auto layerInfo = LayerInfo(inputLayer);
@@ -573,7 +573,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 #if GNA_LIB_VER == 2
     gnaModels.push_back(std::make_tuple(make_shared<CPPWrapper<Gna2Model>>()));
 #else
-    nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
+    nnets.emplace_back(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap());
 #endif
     if (!gnaFlags->sw_fp32) {
         // number of layer gets calculated inside that InitGNAStruct function
@@ -591,7 +591,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         // this can be improved by just copy all structures, but we are too lazy
         dnn->InitGNAStruct(&std::get<0>(gnaModels.back())->obj);
 #else
-        nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap()));
+        nnets.emplace_back(make_shared<CPPWrapper<intel_nnet_type_t>>(), -1, InferenceEngine::BlobMap());
         dnn->InitGNAStruct(&std::get<0>(nnets.back())->obj);
 #endif
         // relocate rw pointers to new offset
@@ -722,7 +722,7 @@ void GNAPlugin::DumpXNNToFile() const {
 
     if (dumpXNNGeneration != "GNA1" &&
         dumpXNNGeneration != "GNA3" &&
-        dumpXNNGeneration != "") {
+        !dumpXNNGeneration.empty()) {
         THROW_GNA_EXCEPTION << "Wrong GNA generation for embedded model dump: " << dumpXNNGeneration;
     }
 
@@ -789,7 +789,7 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
     });
 
     if (freeNnet == nnets.end()) {
-        if (graphCompiler.memory_connection.size() != 0) {
+        if (!graphCompiler.memory_connection.empty()) {
             Wait(0);
             freeNnet = nnets.begin();
         } else {
@@ -1016,7 +1016,7 @@ void GNAPlugin::Infer(const InferenceEngine::BlobMap &input, InferenceEngine::Bl
     Wait(QueueInference(input, result));
 }
 
-Blob::Ptr GNAPlugin::GetOutputBlob(std::string name, InferenceEngine::Precision precision) {
+Blob::Ptr GNAPlugin::GetOutputBlob(const std::string& name, InferenceEngine::Precision precision) {
     // need to have intermediate blob for interleave conversion
     InferenceEngine::Blob::Ptr outputBlob;
     auto outputDims = outputsDataMap[name]->getTensorDesc().getDims();
@@ -1025,7 +1025,7 @@ Blob::Ptr GNAPlugin::GetOutputBlob(std::string name, InferenceEngine::Precision 
     return outputBlob;
 }
 
-Blob::Ptr GNAPlugin::GetInputBlob(std::string name, InferenceEngine::Precision precision) {
+Blob::Ptr GNAPlugin::GetInputBlob(const std::string& name, InferenceEngine::Precision precision) {
     InferenceEngine::Blob::Ptr inputBlob;
     // need to have intermediate blob for interleave conversion
     // TODO: NCHW format support is experimental = c++ MO did insert reshape, while TF mo - not
@@ -1078,7 +1078,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
 #if GNA_LIB_VER == 2
     gnaModels.push_back(std::make_tuple(make_shared<CPPWrapper<Gna2Model>>(header.layersCount)));
 #else
-    nnets.push_back(std::make_tuple(make_shared<CPPWrapper<intel_nnet_type_t>>(header.layersCount), -1, InferenceEngine::BlobMap()));
+    nnets.emplace_back(make_shared<CPPWrapper<intel_nnet_type_t>>(header.layersCount), -1, InferenceEngine::BlobMap());
     std::get<0>(nnets.back())->obj.nGroup = header.nGroup;
 #endif
     GNAModelSerial::MemoryType  mt;
@@ -1168,6 +1168,7 @@ void GNAPlugin::Export(const std::string &fileName) {
     std::fstream outStream(fileName, ios_base::out | ios_base::binary);
 
     // TODO: nnet group parameter looks only used in application - so can we move this line into load network.
+    IE_ASSERT(!inputsDataMap.empty());
     auto inputDims = inputsDataMap.begin()->second->getTensorDesc().getDims();
     if (inputDims.size() == 2) {
 #if GNA_LIB_VER == 1
@@ -1209,7 +1210,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
     auto supportedConfigOptions = supportedConfigKeys();
 
     for (auto& item : config) {
-        auto keys = std::find_if(supportedConfigOptions.begin(), supportedConfigOptions.end(), [&item](std::string supportedConfigOption) {
+        auto keys = std::find_if(supportedConfigOptions.begin(), supportedConfigOptions.end(), [&item](const std::string& supportedConfigOption) {
             return item.first.find(supportedConfigOption) != std::string::npos;
         });
         if (keys == supportedConfigOptions.end()) {
@@ -1220,7 +1221,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
     // holds actual value of a found key
     std::string key;
     std::string value;
-    auto if_set = [&](std::string keyInput, const std::function<void()> & handler) {
+    auto if_set = [&](const std::string& keyInput, const std::function<void()> & handler) {
         auto keyInMap = config.find(keyInput);
         if (keyInMap != config.end()) {
             value = keyInMap->second;
@@ -1228,7 +1229,7 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
         }
     };
 
-    auto if_start = [&](std::string keyInput, const std::function<void()> & handler) {
+    auto if_start = [&](const std::string& keyInput, const std::function<void()> & handler) {
         for (auto && c : config) {
             if (c.first.find(keyInput) == 0) {
                 if (c.first.size() > keyInput.size() + 1) {
@@ -1447,7 +1448,7 @@ void GNAPlugin::QueryNetwork(const InferenceEngine::ICNNNetwork& network,
 
     InferenceEngine::details::UnorderedDFS(allLayers,
                                            secondLayers.begin()->second,
-                                           [&](CNNLayerPtr const layer) {
+                                           [&](CNNLayerPtr const& layer) {
                                                 if (LayerTypeFromStr(layer->type) != LayerType::NO_TYPE) {
                                                     res.supportedLayersMap.insert({ layer->name, GetName() });
                                                 }

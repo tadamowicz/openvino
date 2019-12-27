@@ -4,8 +4,6 @@
 //  gna_helper.cpp : various GNA-related utility functions
 //
 
-#include "runtime/lstm.hpp"
-
 #define USING_GCC
 #define PROFILE
 
@@ -80,8 +78,10 @@ void profilerRtcStartAccumulate(intel_gna_profiler_rtc *p) {
 //    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &p->start);
 }
 void profilerRtcStopAccumulate(intel_gna_profiler_rtc *p) {
-    timespec diff;
     if (nullptr == p) return;
+// TODO: consider removing dead code from this file
+
+//  timespec diff;
 //    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &p->stop);
 //    if ((p->stop.tv_nsec - p->start.tv_nsec)<0) {
 //        diff.tv_sec = p->stop.tv_sec - p->start.tv_sec - 1;

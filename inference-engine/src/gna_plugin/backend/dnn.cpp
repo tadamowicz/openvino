@@ -29,10 +29,6 @@
 #include "runtime/floatmath.h"
 #endif
 
-#ifdef WIN32
-# define rand_r(X) rand()
-#endif
-
 #include "dnn.hpp"
 #include "gna_plugin_log.hpp"
 #include "runtime/pwl.h"
