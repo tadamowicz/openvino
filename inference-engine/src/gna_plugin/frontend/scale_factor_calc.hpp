@@ -468,13 +468,18 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             }
             quant->_weights_quant.scale =
                 ScaleFactorForQuantization(wl->_weights->buffer().as<float *>(), scaleRange, wl->_weights->size());
+            if (quant->_weights_quant.scale == -1.0f) {
+                quant->_weights_quant.scale = 1.0f;
+            }
 
             if (wl->_biases) {
                 quant->_bias_quant.scale = ScaleFactorForQuantization(wl->_biases->buffer().as<float *>(),
                                                                       MAX_VAL_4B_BIAS,
                                                                       wl->_biases->size());
-                quant->_bias_quant.scale = std::min(quant->_weights_quant.scale * quant->_src_quant.scale, quant->_bias_quant.scale);
-                quant->_weights_quant.scale = quant->_bias_quant.scale / quant->_src_quant.scale;
+                if (quant->_bias_quant.scale != -1.0f) {
+                    quant->_bias_quant.scale = std::min(quant->_weights_quant.scale * quant->_src_quant.scale, quant->_bias_quant.scale);
+                    quant->_weights_quant.scale = quant->_bias_quant.scale / quant->_src_quant.scale;
+                }
             }
 
             // TODO: findout why ???
