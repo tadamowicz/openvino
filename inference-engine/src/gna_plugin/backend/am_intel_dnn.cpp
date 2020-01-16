@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -789,8 +789,6 @@ void GNAPluginNS::backend::AMIntelDNN::WriteDnnText(const char *filename, intel_
                     uint32_t num_feature_maps = component[i].op.conv1D.num_feature_maps;
                     uint32_t num_feature_map_rows = component[i].op.conv1D.num_feature_map_rows;
                     uint32_t num_feature_map_columns = component[i].op.conv1D.num_feature_map_columns;
-                    uint32_t num_filter_outputs =
-                            component[i].op.conv1D.num_feature_map_rows - component[i].op.conv1D.num_filter_rows + 1;
                     uint32_t num_bytes_per_weight = component[i].op.conv1D.num_bytes_per_weight;
                     uint32_t num_bytes_per_bias = component[i].op.conv1D.num_bytes_per_bias;
                     float weight_scale_factor = component[i].op.conv1D.weight_scale_factor;
