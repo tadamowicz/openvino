@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -60,9 +60,13 @@ void GNAGraphCompiler::setGNAFlagsPtr(std::shared_ptr<GNAPluginNS::GNAFlags> gna
 }
 
 intel_dnn_component_t * GNAGraphCompiler::find_first_unused_input(InferenceEngine::CNNLayerPtr current) {
-    if (current->insData.empty()) return nullptr;
+    if (current->insData.empty())
+        return nullptr;
+    auto inData = current->insData.front().lock();
+    if (inData == nullptr)
+        return nullptr;
 
-    auto prev_layer = current->insData.front().lock()->getCreatorLayer().lock();
+    auto prev_layer = inData->getCreatorLayer().lock();
 
     return dnnComponents.findComponent(prev_layer);
 }
@@ -173,8 +177,6 @@ void GNAGraphCompiler::DiagonalPrimitive(InferenceEngine::CNNLayerPtr layer) {
 }
 
 void  GNAGraphCompiler::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(constLayer);
-
     if (constLayer->blobs.find("custom") == constLayer->blobs.end()) {
         THROW_GNA_EXCEPTION << "const layer: " << constLayer->name << "doesn't have custom in blobs section";
     }
@@ -203,7 +205,6 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
     uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
     uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
-    uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
     uint32_t w_dim_out = FROM_IR_DIM(outputs, 1);
     uint32_t h_dim_out = FROM_IR_DIM(outputs, 2);
 
@@ -217,7 +218,6 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     uint32_t num_feature_map_rows = w_dim_in / convolution._stride_x;
     uint32_t num_feature_map_columns = c_dim_in * convolution._stride_x / num_feature_maps;
 
-    uint32_t num_rows_in = w_dim_in;
     uint32_t num_columns_in = c_dim_in;
     uint32_t num_rows_out = w_dim_out;
 
@@ -386,8 +386,12 @@ void GNAGraphCompiler::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
         gnamem->readonly().push_value(ptr_weights, power.scale, num_rows_out, 64);
         gnamem->readonly().push_value(ptr_biases, power.scale, num_rows_out, 64);
     } else {
-        auto weightsScaledIdentity = quantized->_weights_quant.scale * power.scale;
-        auto biasesScaledIdentity = quantized->_bias_quant.scale * power.scale;
+        auto weightsScaledIdentity = power.scale;
+        auto biasesScaledIdentity = power.scale;
+        if (quantized != nullptr) {
+            weightsScaledIdentity = quantized->_weights_quant.scale * weightsScaledIdentity;
+            biasesScaledIdentity = quantized->_bias_quant.scale * biasesScaledIdentity;
+        }
 
         auto weightQuantizedIdentity = FLOAT_TO_INT16(std::min(weightsScaledIdentity, static_cast<float>(INT16_MAX)));
         auto biasesQuantizedIdentity = FLOAT_TO_INT16(std::min(biasesScaledIdentity, static_cast<float>(INT16_MAX)));
@@ -416,11 +420,9 @@ void GNAGraphCompiler::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
     uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
     uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
-    uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
     uint32_t w_dim_out = FROM_IR_DIM(outputs, 1);
     uint32_t h_dim_out = FROM_IR_DIM(outputs, 2);
     uint32_t c_dim_out = FROM_IR_DIM(outputs, 3);
-    uint32_t n_dim_out = FROM_IR_DIM(outputs, 4);
 
     if (w_dim_in == 1) {  // swap dimensions if needed to support swapped 1D case
         swap(h_dim_in, w_dim_in);
@@ -482,7 +484,6 @@ void GNAGraphCompiler::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
     uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
     uint32_t num_columns_out = FROM_IR_DIM(outputs, 2);
-    uint32_t num_padding_in = ALIGN(num_rows_in, 8) - num_rows_in;
     uint32_t num_padding_out = ALIGN(num_rows_out, 8) - num_rows_out;
     void* ptr_inputs = nullptr;
     void* ptr_outputs = nullptr;
@@ -962,7 +963,6 @@ void GNAGraphCompiler::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr l
         return;
     }
 
-    std::string& name = filterLayer->name;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
     void* ptr_inputs = nullptr;
@@ -1047,7 +1047,6 @@ void GNAGraphCompiler::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer)
         return;
     }
 
-    std::string& name = filterLayer->name;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
     auto prevLayer = CNNNetPrevLayer(layer.get(), 0);
@@ -1164,7 +1163,6 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
         uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
         uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
-        uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
 
         num_columns = (w_dim_in == 1) ? h_dim_in * c_dim_in : w_dim_in * c_dim_in;
         num_rows = 1;

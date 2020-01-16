@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -16,7 +16,6 @@ void CNNFilter32(intel_dnn_component_t *component) {
     float *ptr_biases = reinterpret_cast<float *>(component->op.conv1D.ptr_biases);
     float *ptr_inputs = reinterpret_cast<float *>(component->ptr_inputs);
     float *ptr_outputs = reinterpret_cast<float *>(component->ptr_outputs);
-    uint32_t num_group = component->num_rows_in;
     uint32_t num_filter_outputs = component->op.conv1D.num_feature_map_rows - component->op.conv1D.num_filter_rows + 1;
     uint32_t
             num_inputs_band_stride = component->op.conv1D.num_feature_maps * component->op.conv1D.num_feature_map_columns;
@@ -49,7 +48,6 @@ void CNNMaxPool(intel_dnn_component_t *component, intel_dnn_number_type_t number
         uint32_t num_pool_size = component->op.maxpool.num_inputs;
         uint32_t num_pool_step = component->op.maxpool.num_inputs_step;
         uint32_t num_rows_in = num_inputs / component->op.maxpool.num_inputs_stride;
-        uint32_t num_rows_out = num_rows_in / num_pool_step;
 
         for (uint32_t i = 0; i < num_columns; i++) {
             int32_t m = 0;
@@ -97,7 +95,6 @@ void CNNMaxPool(intel_dnn_component_t *component, intel_dnn_number_type_t number
         uint32_t num_pool_size = component->op.maxpool.num_inputs;
         uint32_t num_pool_step = component->op.maxpool.num_inputs_step;
         uint32_t num_rows_in = num_inputs / component->op.maxpool.num_inputs_stride;
-        uint32_t num_rows_out = num_rows_in / num_pool_step;
 
         for (uint32_t i = 0; i < num_columns; i++) {
             int32_t m = 0;
