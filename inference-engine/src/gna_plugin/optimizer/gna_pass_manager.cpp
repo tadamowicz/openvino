@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -22,6 +22,7 @@
 #include <ie_algorithm.hpp>
 #include <details/ie_cnn_network_tools.h>
 #include <ie_util_internal.hpp>
+#include <graph_tools.hpp>
 #include "frontend/quantized_layer_params.hpp"
 #include "gna_graph_tools.hpp"
 #include "gna_pass_manager.hpp"
@@ -222,7 +223,7 @@ void InsertDiagonalLayerPass::run() {
 void HandleMultipleActivationsForTheLayerPass::run() {
     // found layer followed by multiple activations
     for (auto & l : *pLayers) {
-        std::set<CNNLayerPtr> activations;
+        CNNLayerSet activations;
 
         for (auto && odata : l->outData) {
             for (auto && inputTo : odata->getInputTo()) {
@@ -326,7 +327,9 @@ void SubstitutePReluPass::run() {
         // sum
         auto sum = getNext(negate);
         if (!LayerInfo(sum).isEltwiseSum()) continue;
-        if (sum->insData.size() != 2) continue;
+        if (sum->insData.size() != 2
+                || sum->insData[0].lock() == nullptr
+                || sum->insData[1].lock() == nullptr) continue;
 
         auto s1 = sum->insData[0].lock()->getCreatorLayer().lock().get();
         auto s2 = sum->insData[1].lock()->getCreatorLayer().lock().get();
