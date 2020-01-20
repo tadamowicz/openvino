@@ -4,7 +4,15 @@
 
 #pragma once
 
-#include "gna-api.h"
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <map>
+#include <thread>
+
+#include <ie_common.h>
+
+#include <gna-api.h>
 #if GNA_LIB_VER == 2
 #include "gna2-common-api.h"
 #include "gna2-inference-api.h"
@@ -17,12 +25,6 @@
 #include "gna-api-dumper.h"
 #include "gna-api-instrumentation.h"
 #endif
-#include "ie_common.h"
-#include <memory>
-#include <string>
-#include <map>
-#include <thread>
-#include "ie_blob.h"
 
 
 /**
@@ -53,7 +55,8 @@ class GNADeviceHelper {
 #define MAX_TIMEOUT 500000
 #endif
     const uint32_t GNA_TIMEOUT = MAX_TIMEOUT;
-    bool isPerformanceMeasuring;
+    bool isPerformanceMeasuring = false;
+    bool deviceOpened = false;
 public:
 #if GNA_LIB_VER == 1
     explicit GNADeviceHelper(intel_gna_proc_t proc_type = GNA_AUTO,
@@ -81,7 +84,6 @@ public:
         }
     }
 
-    bool deviceOpened = false;
     GNADeviceHelper(const GNADeviceHelper&) = delete;
     GNADeviceHelper& operator= (const GNADeviceHelper&) = delete;
     ~GNADeviceHelper() {

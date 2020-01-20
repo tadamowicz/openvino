@@ -17,8 +17,6 @@
 #include "memory/polymorph_allocator.hpp"
 #include "memory/gna_memory.hpp"
 
-#define PAGE_SIZE_BYTES 4096
-
 #define FROM_IR_DIM(mem, idx)\
 ((mem->getTensorDesc().getDims().size() > (idx) - 1) ? mem->getTensorDesc().getDims()[mem->getTensorDesc().getDims().size() - (idx)] : 1)
 

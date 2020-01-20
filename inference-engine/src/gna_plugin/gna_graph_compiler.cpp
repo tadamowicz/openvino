@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -60,7 +60,8 @@ void GNAGraphCompiler::setGNAFlagsPtr(std::shared_ptr<GNAPluginNS::GNAFlags> gna
 }
 
 intel_dnn_component_t * GNAGraphCompiler::find_first_unused_input(InferenceEngine::CNNLayerPtr current) {
-    if (current->insData.empty()) return nullptr;
+    if (current->insData.empty()
+            || current->insData.front().lock() == nullptr) return nullptr;
 
     auto prev_layer = current->insData.front().lock()->getCreatorLayer().lock();
 
@@ -173,8 +174,6 @@ void GNAGraphCompiler::DiagonalPrimitive(InferenceEngine::CNNLayerPtr layer) {
 }
 
 void  GNAGraphCompiler::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) {
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(constLayer);
-
     if (constLayer->blobs.find("custom") == constLayer->blobs.end()) {
         THROW_GNA_EXCEPTION << "const layer: " << constLayer->name << "doesn't have custom in blobs section";
     }
@@ -203,7 +202,6 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
     uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
     uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
-    uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
     uint32_t w_dim_out = FROM_IR_DIM(outputs, 1);
     uint32_t h_dim_out = FROM_IR_DIM(outputs, 2);
 
@@ -217,17 +215,16 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     uint32_t num_feature_map_rows = w_dim_in / convolution._stride_x;
     uint32_t num_feature_map_columns = c_dim_in * convolution._stride_x / num_feature_maps;
 
-    uint32_t num_rows_in = w_dim_in;
     uint32_t num_columns_in = c_dim_in;
     uint32_t num_rows_out = w_dim_out;
 
     // padding of convolution kernel to be multiply of 8
     uint32_t num_conv_kernel_padding = ALIGN(convolution._kernel_x * num_feature_map_columns * num_feature_maps, 8)
         - convolution._kernel_x * num_feature_map_columns * num_feature_maps;
-    void* ptr_inputs;
-    void* ptr_outputs;
-    void* ptr_weights;
-    void* ptr_biases;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
+    void* ptr_weights = nullptr;
+    void* ptr_biases = nullptr;
 
     // TODO: questionable why for biases that are not in IR we inventing precision
     auto biasPrecision = convolution._biases ? convolution._biases->getTensorDesc().getPrecision() : outputs->getPrecision();
@@ -349,10 +346,10 @@ void GNAGraphCompiler::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_columns_in = FROM_IR_DIM(input, 2);
     uint32_t num_rows_out = num_rows_in;
 
-    void* ptr_inputs;
-    void* ptr_outputs;
-    void* ptr_weights;
-    void* ptr_biases;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
+    void* ptr_weights = nullptr;
+    void* ptr_biases = nullptr;
 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "power");
 
@@ -386,8 +383,12 @@ void GNAGraphCompiler::PowerPrimitive(InferenceEngine::CNNLayerPtr layer) {
         gnamem->readonly().push_value(ptr_weights, power.scale, num_rows_out, 64);
         gnamem->readonly().push_value(ptr_biases, power.scale, num_rows_out, 64);
     } else {
-        auto weightsScaledIdentity = quantized->_weights_quant.scale * power.scale;
-        auto biasesScaledIdentity = quantized->_bias_quant.scale * power.scale;
+        auto weightsScaledIdentity = power.scale;
+        auto biasesScaledIdentity = power.scale;
+        if (quantized != nullptr) {
+            weightsScaledIdentity = quantized->_weights_quant.scale * weightsScaledIdentity;
+            biasesScaledIdentity = quantized->_bias_quant.scale * biasesScaledIdentity;
+        }
 
         auto weightQuantizedIdentity = FLOAT_TO_INT16(std::min(weightsScaledIdentity, static_cast<float>(INT16_MAX)));
         auto biasesQuantizedIdentity = FLOAT_TO_INT16(std::min(biasesScaledIdentity, static_cast<float>(INT16_MAX)));
@@ -416,11 +417,9 @@ void GNAGraphCompiler::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
     uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
     uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
-    uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
     uint32_t w_dim_out = FROM_IR_DIM(outputs, 1);
     uint32_t h_dim_out = FROM_IR_DIM(outputs, 2);
     uint32_t c_dim_out = FROM_IR_DIM(outputs, 3);
-    uint32_t n_dim_out = FROM_IR_DIM(outputs, 4);
 
     if (w_dim_in == 1) {  // swap dimensions if needed to support swapped 1D case
         swap(h_dim_in, w_dim_in);
@@ -434,8 +433,8 @@ void GNAGraphCompiler::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_columns_out = c_dim_out;
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
-    void* ptr_inputs;
-    void* ptr_outputs;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "pooling");
 
@@ -482,10 +481,9 @@ void GNAGraphCompiler::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_columns_in = FROM_IR_DIM(inputs, 2);
     uint32_t num_rows_out = FROM_IR_DIM(outputs, 1);
     uint32_t num_columns_out = FROM_IR_DIM(outputs, 2);
-    uint32_t num_padding_in = ALIGN(num_rows_in, 8) - num_rows_in;
     uint32_t num_padding_out = ALIGN(num_rows_out, 8) - num_rows_out;
-    void* ptr_inputs;
-    void* ptr_outputs;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
     auto orientation = (num_cnn_rows_out > 0) ? kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "copy");
@@ -639,10 +637,10 @@ void GNAGraphCompiler::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         uint32_t num_rows_out = FROM_IR_DIM(outputs, inputs->getDims().size() - cropLayer->axis[0]);
         uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
-        void* ptr_inputs;
-        void* ptr_outputs;
-        void* ptr_weights;
-        void* ptr_biases;
+        void* ptr_inputs = nullptr;
+        void* ptr_outputs = nullptr;
+        void* ptr_weights = nullptr;
+        void* ptr_biases = nullptr;
 
         auto& currentComponent = dnnComponents.addComponent(layer->name, "crop");
 
@@ -720,10 +718,10 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_rows_out = num_rows_in;
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
-    void* ptr_inputs;
-    void* ptr_outputs;
-    void* ptr_weights;
-    void* ptr_biases;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
+    void* ptr_weights = nullptr;
+    void* ptr_biases = nullptr;
 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "diagonal");
     dnn->InitAffineComponent(currentComponent,
@@ -794,10 +792,10 @@ void GNAGraphCompiler::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool 
     uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
     uint32_t num_padding_out = isDiag ? num_padding : 0;
 
-    void* ptr_inputs;
-    void* ptr_outputs;
-    void* ptr_weights;
-    void* ptr_biases;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
+    void* ptr_weights = nullptr;
+    void* ptr_biases = nullptr;
 
     // TODO: questionable why for biases that are no in Model we inventing precision
     auto biasPrecision = weightable._biases ? weightable._biases->getTensorDesc().getPrecision() : outputs->getPrecision();
@@ -962,13 +960,12 @@ void GNAGraphCompiler::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr l
         return;
     }
 
-    std::string& name = filterLayer->name;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
-    void* ptr_inputs;
-    void* ptr_outputs;
-    void* ptr_weights;
-    void* ptr_biases;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
+    void* ptr_weights = nullptr;
+    void* ptr_biases = nullptr;
 
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
@@ -1047,7 +1044,6 @@ void GNAGraphCompiler::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer)
         return;
     }
 
-    std::string& name = filterLayer->name;
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
     auto prevLayer = CNNNetPrevLayer(layer.get(), 0);
@@ -1055,10 +1051,10 @@ void GNAGraphCompiler::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer)
         THROW_GNA_EXCEPTION << "Case  with Affine Aligning Filter for not Split/Slice layers is not implemented yet!";
     }
 
-    void* ptr_inputs;
-    void* ptr_outputs;
-    void* ptr_weights;
-    void* ptr_biases;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
+    void* ptr_weights = nullptr;
+    void* ptr_biases = nullptr;
 
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
@@ -1134,8 +1130,8 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
     std::vector<intel_pwl_segment_t> ptr_pwl_segments;
     uint32_t num_rows;
     uint32_t num_columns;
-    void* ptr_inputs;
-    void* ptr_outputs;
+    void* ptr_inputs = nullptr;
+    void* ptr_outputs = nullptr;
 
     do {
         if (generic == nullptr) {
@@ -1164,7 +1160,6 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
         uint32_t h_dim_in = FROM_IR_DIM(inputs, 2);
         uint32_t c_dim_in = FROM_IR_DIM(inputs, 3);
-        uint32_t n_dim_in = FROM_IR_DIM(inputs, 4);
 
         num_columns = (w_dim_in == 1) ? h_dim_in * c_dim_in : w_dim_in * c_dim_in;
         num_rows = 1;

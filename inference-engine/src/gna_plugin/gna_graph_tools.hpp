@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -215,8 +215,11 @@ inline void CNNNetSwapLayers(InferenceEngine::CNNLayerPtr lhs,
         // 1. removing interconnects lhs->rhs
         bool interConnectBackL2R = false;
         details::erase_if(lhs->insData, [&interConnectBackL2R, &rhs](DataWeakPtr weakData) {
-            interConnectBackL2R |= weakData.lock()->getCreatorLayer().lock() == rhs;
-            return weakData.lock()->getCreatorLayer().lock() == rhs;
+            InferenceEngine::CNNLayerPtr creator = nullptr;
+            if (weakData.lock() != nullptr)
+                creator = weakData.lock()->getCreatorLayer().lock();
+            interConnectBackL2R |= creator == rhs;
+            return creator == rhs;
         });
 
         // 2. removing interconnects rhs->lhs

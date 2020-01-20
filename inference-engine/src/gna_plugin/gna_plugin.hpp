@@ -175,6 +175,8 @@ void createRequestConfigsForGnaModels();
  protected:
     void Init();
 
+    void InitGNADevice();
+
     void DumpXNNToFile() const;
 
     void ImportFrames(void *ptr_dst,
