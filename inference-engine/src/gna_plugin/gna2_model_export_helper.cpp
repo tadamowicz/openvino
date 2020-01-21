@@ -1,7 +1,6 @@
-// Copyright (C) 2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
 
 #if GNA_LIB_VER == 2
 #include "gna2_model_export_helper.hpp"
