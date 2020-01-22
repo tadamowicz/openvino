@@ -109,9 +109,9 @@ void createRequestConfigsForGnaModels();
 
     void SetConfig(const std::map<std::string, std::string> &config) override;
     void LoadNetwork(InferenceEngine::IExecutableNetwork::Ptr &executableNetwork,
-                     InferenceEngine::ICNNNetwork &network,
+                     const InferenceEngine::ICNNNetwork &network,
                      const std::map<std::string, std::string> &config) override { THROW_GNA_EXCEPTION << "Not implemented"; }
-    InferenceEngine::ExecutableNetwork LoadNetwork(InferenceEngine::ICNNNetwork &network,
+    InferenceEngine::ExecutableNetwork LoadNetwork(const InferenceEngine::ICNNNetwork &network,
                                   const std::map<std::string, std::string> &config,
                                   InferenceEngine::RemoteContext::Ptr context) override { THROW_GNA_EXCEPTION << "Not implemented"; }
     void Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob &result);
