@@ -62,6 +62,7 @@ static void insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
     gnalog() << "Inserted Diagonal Layer " << diagName <<" between: " << prevLayer->name << " and " << nextLayer->name << "\n" << std::flush;
 
     auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
+    IE_ASSERT(diagLayer != nullptr);
 
     // TODO: diagonal size
     auto dimsIndex = nextLayer->outData[0]->getTensorDesc().getDims().size() - 1;
@@ -330,11 +331,15 @@ void SubstitutePReluPass::run() {
 
         auto inData_0 = sum->insData[0].lock();
         IE_ASSERT(inData_0 != nullptr);
+        auto creatorLayer_0 = inData_0->getCreatorLayer().lock();
+        IE_ASSERT(creatorLayer_0 != nullptr);
         auto inData_1 = sum->insData[1].lock();
         IE_ASSERT(inData_1 != nullptr);
+        auto creatorLayer_1 = inData_1->getCreatorLayer().lock();
+        IE_ASSERT(creatorLayer_1 != nullptr);
 
-        auto s1 = inData_0->getCreatorLayer().lock().get();
-        auto s2 = inData_1->getCreatorLayer().lock().get();
+        auto s1 = creatorLayer_0.get();
+        auto s2 = creatorLayer_1.get();
 
         if (s1 != static_cast<InferenceEngine::CNNLayer *>(first) &&
             s2 != static_cast<InferenceEngine::CNNLayer *>(first)) {

@@ -1306,6 +1306,7 @@ void GNAGraphCompiler::PermutePrimitive(InferenceEngine::CNNLayerPtr layer) {
     }
 
     if (layerOrder == vector<int>({1, 0, 2})) {
+        IE_ASSERT(!layer->insData.empty());
         auto inputs = layer->insData.begin()->lock();
         auto inputs_size = inputs->getTensorDesc().getDims().size();
         if (inputs_size != layerOrder.size()) {
