@@ -24,6 +24,7 @@ bool GNAPluginNS::AreLayersSupported(InferenceEngine::ICNNNetwork& network, std:
     std::unordered_set<InferenceEngine::CNNLayer *> allLayers;
     auto network_precision = network.getPrecision();
     network.getInputsInfo(inputs);
+    IE_ASSERT(!inputs.empty());
     auto network_input_precision = inputs.begin()->second->getPrecision();
     auto batch_size = network.getBatchSize();
 
