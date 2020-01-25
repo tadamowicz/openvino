@@ -1012,7 +1012,9 @@ void GNAPlugin::Infer(const InferenceEngine::Blob &input, InferenceEngine::Blob 
         THROW_GNA_EXCEPTION << "cannot infer using Infer(Blob&, Blob&)"<< "model accepts " << inputsDataMap.size() << " inputs";
     }
 
+    IE_ASSERT(!inputsDataMap.empty());
     bmInput[inputsDataMap.begin()->first] = std::shared_ptr<Blob>(const_cast<Blob*>(&input), [](Blob*){});
+    IE_ASSERT(!outputsDataMap.empty());
     bmOutput[outputsDataMap.begin()->first] = std::shared_ptr<Blob>(&output, [](Blob*){});
     Infer(bmInput, bmOutput);
 }
