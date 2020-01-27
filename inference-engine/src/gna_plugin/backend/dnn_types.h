@@ -205,7 +205,7 @@ typedef struct {
     float output_scale_factor;
     float input_scale_factor;
 #ifdef PLOT
-    const char * orignal_layer_name = nullptr;
+    const char * original_layer_name = nullptr;
 #endif
 } intel_dnn_component_t;
 

@@ -81,6 +81,7 @@ class ModelQuantizer {
             if (scaleFactor.size() <= scaleIndex) {
                 THROW_GNA_EXCEPTION << "Index of scale factor element is incorrect";
             }
+            IE_ASSERT(quantData != nullptr);
             quantData->_src_quant.scale = scaleFactor[scaleIndex];
             scaleIndex++;
         }
