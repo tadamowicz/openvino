@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -175,7 +175,7 @@ class LayerInfo {
             try {
                 size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
                 return (ALIGN64(cropOffset) != cropOffset);
-            } catch (InferenceEngine::details::InferenceEngineException& e) {}
+            } catch (InferenceEngine::details::InferenceEngineException) {}
         }
         return false;
     }

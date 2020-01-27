@@ -60,10 +60,13 @@ void GNAGraphCompiler::setGNAFlagsPtr(std::shared_ptr<GNAPluginNS::GNAFlags> gna
 }
 
 intel_dnn_component_t * GNAGraphCompiler::find_first_unused_input(InferenceEngine::CNNLayerPtr current) {
-    if (current->insData.empty()
-            || current->insData.front().lock() == nullptr) return nullptr;
+    if (current->insData.empty())
+        return nullptr;
+    auto inData = current->insData.front().lock();
+    if (inData == nullptr)
+        return nullptr;
 
-    auto prev_layer = current->insData.front().lock()->getCreatorLayer().lock();
+    auto prev_layer = inData->getCreatorLayer().lock();
 
     return dnnComponents.findComponent(prev_layer);
 }
@@ -115,6 +118,7 @@ void GNAGraphCompiler::fillSplitConnections(InferenceEngine::CNNLayerPtr layer) 
     GNAPluginNS::GNASplitLayer layerInfoItem(layer);
     size_t split_size = 0;
     std::string& id = layer->name;
+    IE_ASSERT(!layer->insData.empty());
     auto dataInput = layer->insData.begin()->lock();
     if (!dataInput) {
         THROW_GNA_EXCEPTION << "Input layer pointer for split/slice is unexpectedly absent";
@@ -196,6 +200,8 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     auto& convolution = dynamic_cast<ConvolutionLayer&>(*layer.get());
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
+    IE_ASSERT(!layer->insData.empty());
+    IE_ASSERT(!layer->outData.empty());
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
 
@@ -411,6 +417,8 @@ void GNAGraphCompiler::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto& pooling = dynamic_cast<PoolingLayer&>(*layer.get());
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
+    IE_ASSERT(!layer->insData.empty());
+    IE_ASSERT(!layer->outData.empty());
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
 
@@ -474,6 +482,8 @@ void GNAGraphCompiler::PoolingPrimitive(InferenceEngine::CNNLayerPtr layer) {
 void GNAGraphCompiler::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
+    IE_ASSERT(!layer->insData.empty());
+    IE_ASSERT(!layer->outData.empty());
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
 
@@ -622,6 +632,8 @@ void GNAGraphCompiler::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         }
     } else {
         gnalog() << "Crop " << layer->name << " is being replaced by Affine layer...\n";
+        IE_ASSERT(!layer->outData.empty());
+        IE_ASSERT(!layer->insData.empty());
         auto outputs = *layer->outData.begin();
         auto inputs = layer->insData.begin()->lock();
 
@@ -782,6 +794,8 @@ void GNAGraphCompiler::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool 
     auto& weightable = dynamic_cast<WeightableLayer&>(*layer.get());
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
 
+    IE_ASSERT(!layer->insData.empty());
+    IE_ASSERT(!layer->outData.empty());
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
     auto inputPrecision = quantized ? Precision(Precision::I16) : inputs->getPrecision();
@@ -927,6 +941,8 @@ void GNAGraphCompiler::AffinePrimitive(InferenceEngine::CNNLayerPtr layer, bool 
 }
 
 void GNAGraphCompiler::FillWeightOfAligningFilter(InferenceEngine::CNNLayerPtr layer, void* ptrWeights, size_t offset, bool isQuantized) {
+    IE_ASSERT(!layer->outData.empty());
+    IE_ASSERT(!layer->insData.empty());
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
 
@@ -967,6 +983,8 @@ void GNAGraphCompiler::ConcatAlignFilterPrimitive(InferenceEngine::CNNLayerPtr l
     void* ptr_weights = nullptr;
     void* ptr_biases = nullptr;
 
+    IE_ASSERT(!layer->outData.empty());
+    IE_ASSERT(!layer->insData.empty());
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
 
@@ -1056,6 +1074,8 @@ void GNAGraphCompiler::AffineFilterPrimitive(InferenceEngine::CNNLayerPtr layer)
     void* ptr_weights = nullptr;
     void* ptr_biases = nullptr;
 
+    IE_ASSERT(!layer->outData.empty());
+    IE_ASSERT(!layer->insData.empty());
     auto outputs = *layer->outData.begin();
     auto inputs = layer->insData.begin()->lock();
 
@@ -1148,6 +1168,8 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         }
     } while (false);
 
+    IE_ASSERT(!layer->insData.empty());
+    IE_ASSERT(!layer->outData.empty());
     auto inputs = layer->insData.begin()->lock();
     auto outputs = *layer->outData.begin();
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
@@ -1284,6 +1306,7 @@ void GNAGraphCompiler::PermutePrimitive(InferenceEngine::CNNLayerPtr layer) {
     }
 
     if (layerOrder == vector<int>({1, 0, 2})) {
+        IE_ASSERT(!layer->insData.empty());
         auto inputs = layer->insData.begin()->lock();
         auto inputs_size = inputs->getTensorDesc().getDims().size();
         if (inputs_size != layerOrder.size()) {

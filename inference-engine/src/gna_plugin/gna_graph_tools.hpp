@@ -216,8 +216,9 @@ inline void CNNNetSwapLayers(InferenceEngine::CNNLayerPtr lhs,
         bool interConnectBackL2R = false;
         details::erase_if(lhs->insData, [&interConnectBackL2R, &rhs](DataWeakPtr weakData) {
             InferenceEngine::CNNLayerPtr creator = nullptr;
-            if (weakData.lock() != nullptr)
-                creator = weakData.lock()->getCreatorLayer().lock();
+            auto data = weakData.lock();
+            if (data != nullptr)
+                creator = data->getCreatorLayer().lock();
             interConnectBackL2R |= creator == rhs;
             return creator == rhs;
         });
@@ -226,8 +227,10 @@ inline void CNNNetSwapLayers(InferenceEngine::CNNLayerPtr lhs,
         auto interConnectBackR2L = false;
         if (!interConnectBackL2R) {
             details::erase_if(rhs->insData, [&interConnectBackR2L, &lhs](DataWeakPtr weakData) {
-                interConnectBackR2L |= weakData.lock()->getCreatorLayer().lock() == lhs;
-                return weakData.lock()->getCreatorLayer().lock() == lhs;
+                auto data = weakData.lock();
+                IE_ASSERT(data != nullptr);
+                interConnectBackR2L |= data->getCreatorLayer().lock() == lhs;
+                return data->getCreatorLayer().lock() == lhs;
             });
         }
 

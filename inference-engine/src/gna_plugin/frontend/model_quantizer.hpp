@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -81,6 +81,7 @@ class ModelQuantizer {
             if (scaleFactor.size() <= scaleIndex) {
                 THROW_GNA_EXCEPTION << "Index of scale factor element is incorrect";
             }
+            IE_ASSERT(quantData != nullptr);
             quantData->_src_quant.scale = scaleFactor[scaleIndex];
             scaleIndex++;
         }

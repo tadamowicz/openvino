@@ -62,10 +62,12 @@ static void insertDiagonalLayerBetween(InferenceEngine::CNNLayerPtr prevLayer,
     gnalog() << "Inserted Diagonal Layer " << diagName <<" between: " << prevLayer->name << " and " << nextLayer->name << "\n" << std::flush;
 
     auto diagLayer = std::make_shared<ScaleShiftLayer>(LayerParams({diagName, "ScaleShift", Precision::FP32}));
+    IE_ASSERT(diagLayer != nullptr);
 
     // TODO: diagonal size
     auto dimsIndex = nextLayer->outData[0]->getTensorDesc().getDims().size() - 1;
     std::vector<float> weightsValues(nextLayer->outData[0]->getTensorDesc().getDims()[dimsIndex], fillValue);
+    IE_ASSERT(diagLayer != nullptr);
     diagLayer->_weights = make_shared_blob<float>(
             TensorDesc(
                 nextLayer->outData[0]->getTensorDesc().getPrecision(),
@@ -186,8 +188,6 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
 }
 
 void InsertDiagonalLayerPass::run() {
-    int numOfDiagLayers = 0;
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
     for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
         auto prevLayer = CNNNetPrevLayer(l);
@@ -331,8 +331,17 @@ void SubstitutePReluPass::run() {
                 || sum->insData[0].lock() == nullptr
                 || sum->insData[1].lock() == nullptr) continue;
 
-        auto s1 = sum->insData[0].lock()->getCreatorLayer().lock().get();
-        auto s2 = sum->insData[1].lock()->getCreatorLayer().lock().get();
+        auto inData_0 = sum->insData[0].lock();
+        IE_ASSERT(inData_0 != nullptr);
+        auto creatorLayer_0 = inData_0->getCreatorLayer().lock();
+        IE_ASSERT(creatorLayer_0 != nullptr);
+        auto inData_1 = sum->insData[1].lock();
+        IE_ASSERT(inData_1 != nullptr);
+        auto creatorLayer_1 = inData_1->getCreatorLayer().lock();
+        IE_ASSERT(creatorLayer_1 != nullptr);
+
+        auto s1 = creatorLayer_0.get();
+        auto s2 = creatorLayer_1.get();
 
         if (s1 != static_cast<InferenceEngine::CNNLayer *>(first) &&
             s2 != static_cast<InferenceEngine::CNNLayer *>(first)) {
@@ -789,6 +798,8 @@ void InsertSplitAligningFilterPass::run() {
                 size_t newOutputSize = (currentOffset + ALIGN(outputSize, 8) * bytesPerSplitElement - aligned64_offset)
                                        / bytesPerSplitElement;
 
+                IE_ASSERT(filterLayer != nullptr);
+
                 // encodes offset to beginning of split layer input
                 filterLayer->params["offset"] = std::to_string(aligned64_offset / bytesPerSplitElement);
 
@@ -836,7 +847,6 @@ void InsertSplitAligningFilterPass::run() {
 }
 
 void SubstituteScaleShiftBroadCastPass::run() {
-    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
     for (auto & l : *pLayers) {
         LayerInfo layerInfo(l);
 
