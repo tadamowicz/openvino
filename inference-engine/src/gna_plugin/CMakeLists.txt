@@ -3,6 +3,9 @@
 
 set(TARGET_NAME "GNAPlugin")
 
+if(ENABLE_LTO)
+    ie_enable_lto()
+endif()
 
 file(GLOB_RECURSE SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
