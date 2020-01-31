@@ -602,7 +602,7 @@ void InsertConcatAligningFilterPass::run() {
 
             // correcting offset by copy layer insertion. This can be improved by collapsing copy and affine or diagonal later-on
             // if next concat inputs requires align filter - then current input also requires either copy or align filter
-            if (ALIGN64(offset) != offset || (ALIGN64(outputSize) != outputSize) && useAlignFilterIf(input_idx + 1)) {
+            if (ALIGN64(offset) != offset || (ALIGN64(outputSize) != outputSize && useAlignFilterIf(input_idx + 1))) {
                 auto prevLayer = concatInput->getCreatorLayer().lock();
                 // input layer parameters are copied not using GNA-primitives - so nothing to allign here.
                 if (!useAlignFilterIf(input_idx)) continue;
