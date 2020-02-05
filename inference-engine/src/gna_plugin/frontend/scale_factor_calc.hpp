@@ -507,13 +507,16 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             gnawarn() << "Output scale for " << wl->name
                                             << " too large and are being reduced. Else saturations likely will happen \n";
             // reduce weight scale according experimental heuristic
-            if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_100) {
+            if (quant->_dst_quant.scale * quant->_src_quant.scale /
+                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_100) {
                 quant->_weights_quant.scale *= _scale_reduction_50;
                 tmp_dst_quant_scale *= _scale_reduction_50;
-            } else if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_150) {
+            } else if (quant->_dst_quant.scale * quant->_src_quant.scale /
+                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_150) {
                 quant->_weights_quant.scale *= _scale_reduction_45;
                 tmp_dst_quant_scale *= _scale_reduction_45;
-            } else if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_200) {
+            } else if (quant->_dst_quant.scale * quant->_src_quant.scale /
+                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_200) {
                 quant->_weights_quant.scale *= _scale_reduction_40;
                 tmp_dst_quant_scale *= _scale_reduction_40;
             } else {
