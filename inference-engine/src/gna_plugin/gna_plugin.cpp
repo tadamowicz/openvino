@@ -453,8 +453,6 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         gnaFlags->gna_lib_async_threads_num = 1;
     }
 
-    auto networkPrecision = newNet->getPrecision();
-
     if (gnaFlags->sw_fp32) {
         gnamem.reset(new gna_memory_type(memory::make_polymorph<std::allocator<uint8_t>>()));
         graphCompiler.setGNAMemoryPtr(gnamem);
