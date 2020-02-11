@@ -20,8 +20,6 @@ struct InputDesc {
     std::unordered_map<std::string, std::list<std::vector<void *>>::iterator> ptr_inputs_global_id;
     std::list<std::vector<void *>> ptr_inputs_global_storage;
 
-    std::vector<void *>& getPtrInputsGlobal(const std::string& name);
-    intel_dnn_orientation_t getOrientation(const std::string& name);
-    float getScaleFactor(std::size_t index);
+    std::vector<void *>& get_ptr_inputs_global(std::string name);
 };
 }  // namespace GNAPluginNS

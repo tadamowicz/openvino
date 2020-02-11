@@ -145,7 +145,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                         InferenceEngine::CNNLayerPtr  restartedLayer;
 
                         gnalog() << "Memory layer :"<< input->name << " scale factor: " << quantSibling->_dst_quant.scale
-                            << " doesn't match its outputs counterpart: " << cnnLayer->name << " scale factor: " << inputQuant->_dst_quant.scale << "\n";
+                            << " doen't match its outputs counterpart: " << cnnLayer->name << " scale factor: " << inputQuant->_dst_quant.scale << "\n";
                         gnalog() << "[UFS] searching for quantizeable input layer for: "<< cnnLayer->name << "\n";
 
                         CNNNetDFS(InferenceEngine::CNNLayerPtr(cnnLayer, [](InferenceEngine::CNNLayer *) {}),
@@ -197,36 +197,6 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             return true;
         }
 
-        if (cnnLayer->type == "Const") {
-            auto blob = cnnLayer->blobs["custom"];
-            if (blob->getTensorDesc().getPrecision() == InferenceEngine::Precision::FP16) {
-                blob = make_fp32_blob(blob);
-            }
-            auto max_val = std::numeric_limits<float>::min();
-            auto min_val = std::numeric_limits<float>::max();
-
-            auto flt_buf = blob->buffer().as<float*>();
-            auto size = blob->size();
-
-            for (int i=0; i < size; i++) {
-                auto val = flt_buf[i];
-                if (val > max_val) max_val = val;
-                if (val < min_val) min_val = val;
-            }
-
-            auto abs_val = std::max(std::abs(max_val), std::abs(min_val));
-            auto scale_val = static_cast<float>(std::numeric_limits<int16_t>::max()) / abs_val;
-
-            // TODO: Investigate what should be the scale in such cases (31910)
-            if (std::isinf(scale_val)) {
-                quant->_dst_quant.scale = quant->_src_quant.scale;
-            } else {
-                quant->_dst_quant.scale = scale_val;
-            }
-
-            return ScaleFactorUpdateResult();
-        }
-
         if (!CNNNetHasPrevLayer(cnnLayer)) {
             quant->_dst_quant.scale = quant->_src_quant.scale;
             return ScaleFactorUpdateResult();
@@ -261,7 +231,6 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
 
         auto quantParams0 = InferenceEngine::getInjectedData<QuantizedLayerParams>(in0);
         auto quantParams1 = InferenceEngine::getInjectedData<QuantizedLayerParams>(in1);
-
         auto quantData = InferenceEngine::getInjectedData<QuantizedLayerParams>(*eltwiseLayer);
 
         switch (eltwiseLayer->_operation) {
@@ -270,7 +239,6 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
                 quantData->_dst_quant.scale     = quantParams0->_dst_quant.scale * quantParams1->_dst_quant.scale;
                 break;
             }
-            case InferenceEngine::EltwiseLayer::Sub:
             case InferenceEngine::EltwiseLayer::Sum: {
                 // detect which input will be used as biases
                 if (LayerInfo(in0).has32BOutput()) {
@@ -279,7 +247,6 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
                 }
 
                 // this path might result in significant data loss
-                quantData->_bias_quant.scale = quantParams1->_dst_quant.scale / quantParams0->_dst_quant.scale;
                 quantData->_weights_quant.scale = quantParams1->_dst_quant.scale / quantParams0->_dst_quant.scale;
                 quantData->_dst_quant.scale = quantParams1->_dst_quant.scale;
 
@@ -367,7 +334,7 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
         }
         // support only cases when one of input is network input
         if (infoIn0.isInput() && infoIn1.isInput()) {
-            THROW_GNA_EXCEPTION << "Two Input layers " << in0->name << "and" << in1->name << " has different scales in concat!!! \n";
+            THROW_GNA_EXCEPTION << "Two Input layers has different scales in concat!!! \n";
         }
 
         int concatIdxToUpdate = -1;
@@ -540,16 +507,13 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             gnawarn() << "Output scale for " << wl->name
                                             << " too large and are being reduced. Else saturations likely will happen \n";
             // reduce weight scale according experimental heuristic
-            if (quant->_dst_quant.scale * quant->_src_quant.scale /
-                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_100) {
+            if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_100) {
                 quant->_weights_quant.scale *= _scale_reduction_50;
                 tmp_dst_quant_scale *= _scale_reduction_50;
-            } else if (quant->_dst_quant.scale * quant->_src_quant.scale /
-                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_150) {
+            } else if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_150) {
                 quant->_weights_quant.scale *= _scale_reduction_45;
                 tmp_dst_quant_scale *= _scale_reduction_45;
-            } else if (quant->_dst_quant.scale * quant->_src_quant.scale /
-                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_200) {
+            } else if (quant->_dst_quant.scale * quant->_src_quant.scale / std::numeric_limits<int32_t>::max() < _scale_change_threshold_200) {
                 quant->_weights_quant.scale *= _scale_reduction_40;
                 tmp_dst_quant_scale *= _scale_reduction_40;
             } else {

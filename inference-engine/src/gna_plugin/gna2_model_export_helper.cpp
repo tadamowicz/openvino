@@ -52,34 +52,30 @@ void * ExportSueLegacyUsingGnaApi2(
 }
 
 
-void ExportLdForDeviceVersion(
-    uint32_t modelId,
-    std::ostream & outStream,
-    const Gna2DeviceVersion deviceVersionToExport) {
-
+void ExportLdForNoMmu(uint32_t modelId, std::ostream & outStream) {
     uint32_t exportConfig;
     auto status = Gna2ModelExportConfigCreate(gnaUserAllocatorAlignedPage, &exportConfig);
     GNADeviceHelper::checkGna2Status(status);
 
     status = Gna2ModelExportConfigSetSource(exportConfig, 0, modelId);
     GNADeviceHelper::checkGna2Status(status);
-    status = Gna2ModelExportConfigSetTarget(exportConfig, deviceVersionToExport);
+    status = Gna2ModelExportConfigSetTarget(exportConfig, Gna2DeviceVersionEmbedded3_0);
     GNADeviceHelper::checkGna2Status(status);
 
-    void * ldDump;
-    uint32_t ldDumpSize;
+    void * ldNoMmu;
+    uint32_t ldNoMmuSize;
 
     status = Gna2ModelExport(exportConfig,
         Gna2ModelExportComponentLayerDescriptors,
-        &ldDump, &ldDumpSize);
+        &ldNoMmu, &ldNoMmuSize);
     GNADeviceHelper::checkGna2Status(status);
 
-    outStream.write(static_cast<char*>(ldDump), ldDumpSize);
+    outStream.write(static_cast<char*>(ldNoMmu), ldNoMmuSize);
 
     status = Gna2ModelExportConfigRelease(exportConfig);
     GNADeviceHelper::checkGna2Status(status);
 
-    gnaUserFree(ldDump);
+    gnaUserFree(ldNoMmu);
 }
 
 void ExportGnaDescriptorPartiallyFilled(uint32_t number_of_layers, std::ostream& outStream) {

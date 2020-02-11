@@ -19,13 +19,6 @@ enum DnnActivationType : uint8_t {
     kActIdentity,
     kActKaldiLstmClipping,
     kActCustom,
-    kActExp,
-    kActLog,
-    kActSign,
-    kActAbs,
-    kActNegLog,
-    kActNegHalfLog,
-    kActSoftSign,
     kActNumType
 };
 
@@ -54,14 +47,7 @@ static const char *intel_dnn_activation_name[kActNumType] = {
         "kActLeakyRelu",
         "kActIdentity",
         "kActKaldiLstmClipping",
-        "kActExp",
-        "kActLog",
-        "kActSign",
-        "kActAbs",
-        "kActNegLog",
-        "kActNegHalfLog",
-        "kActCustom",
-        "kActSoftSign"
+        "kActCustom"
 };
 
 typedef enum DnnSoftmaxType {
@@ -219,7 +205,7 @@ typedef struct {
     float output_scale_factor;
     float input_scale_factor;
 #ifdef PLOT
-    const char * original_layer_name = nullptr;
+    const char * orignal_layer_name = nullptr;
 #endif
 } intel_dnn_component_t;
 

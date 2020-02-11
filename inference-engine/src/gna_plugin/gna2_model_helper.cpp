@@ -4,7 +4,7 @@
 
 #if GNA_LIB_VER == 2
 
-#if defined __INTEL_COMPILER || defined _MSC_VER
+#ifdef _WIN32
 #include <malloc.h>
 #else
 #include <mm_malloc.h>
@@ -62,14 +62,6 @@ Gna2Tensor * createGna2Tensor1D(uint32_t x, uint32_t byteSize, void* data) {
     const auto input = reinterpret_cast<Gna2Tensor*>(gnaUserAllocator(sizeof(Gna2Tensor)));
     *input = HelperGna2TensorInit1D(x, Gna2DataTypeFromBytes(byteSize), data);
     return input;
-}
-
-Gna2Tensor * createGna2TensorPwl(uint32_t x, void* data) {
-    auto ret = createGna2Tensor1D(x, 1, data);
-    ret->Type = Gna2DataTypePwlSegment;
-    if (data == nullptr)
-        ret->Mode = Gna2TensorModeDisabled;
-    return ret;
 }
 
 Gna2Tensor * createGna2BiasTensor1D(uint32_t x, uint32_t byteSize, void* data) {

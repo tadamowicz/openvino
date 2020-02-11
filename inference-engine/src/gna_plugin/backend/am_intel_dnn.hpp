@@ -36,14 +36,14 @@ public:
               ptr_priors(NULL),
               ptr_dnn_memory_(NULL),
               num_bytes_dnn_memory_(0),
-              compute_precision_(kDnnNumNumberType) {
+              number_type_(kDnnNumNumberType) {
     }
 
     ~AMIntelDNN();
 
     void Init(void *ptr_memory,
             uint32_t num_memory_bytes,
-            intel_dnn_number_type_t compute_precision,
+            intel_dnn_number_type_t number_type,
             float scale_factor);
 
     void InitActiveList(uint32_t *ptr_active_list);
@@ -235,7 +235,7 @@ public:
 
     void WriteGraphWizModel(const char *filename);
 
-    void WriteDnnText(const char *filename, intel_dnn_number_type_t logging_precision);
+    void WriteDnnText(const char *filename, intel_dnn_number_type_t number_type);
 
 
 #if GNA_LIB_VER == 2
@@ -291,7 +291,7 @@ private:
     uint32_t num_bytes_dnn_memory_;
     uint32_t *ptr_active_outputs_;
     uint32_t num_active_outputs_;
-    intel_dnn_number_type_t compute_precision_;
+    intel_dnn_number_type_t number_type_;
     float input_scale_factor_;
     uint32_t dump_write_index = 0;
 
