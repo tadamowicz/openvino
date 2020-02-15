@@ -12,7 +12,7 @@
 #include <cpp_interfaces/impl/ie_executable_network_thread_safe_default.hpp>
 #include "gna_infer_request.hpp"
 #include "gna_plugin.hpp"
-#include <cpp_interfaces/ie_executor_manager.hpp>
+#include <threading/ie_executor_manager.hpp>
 #include <cpp_interfaces/impl/ie_executable_network_thread_safe_async_only.hpp>
 
 namespace GNAPluginNS {
