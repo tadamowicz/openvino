@@ -16,9 +16,13 @@ namespace GNAPluginNS {
 class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
  public:
     InferenceEngine::ExecutableNetworkInternal::Ptr LoadExeNetworkImpl(const InferenceEngine::ICore * core,
-                                                InferenceEngine::ICNNNetwork &network,
+                                                const InferenceEngine::ICNNNetwork &network,
                                                 const std::map<std::string, std::string> &config) override {
-        return std::make_shared<GNAExecutableNetwork>(network, config);
+        auto clonedNetwork = CloneNetwork(network);
+        ConstTransformer transformator(clonedNetwork.get());
+        transformator.fullTrim();
+
+        return std::make_shared<GNAExecutableNetwork>(clonedNetwork, config);
     }
     void SetConfig(const std::map<std::string, std::string> &config) override {
         auto plg = std::make_shared<GNAPlugin>();
