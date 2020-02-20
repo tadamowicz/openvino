@@ -20,12 +20,14 @@ enum LayerType {
     LeakyReLU,
     Sigmoid,
     TanH,
+    Abs,
     Activation,
     Pooling,
     FullyConnected,
     InnerProduct,
     Reshape,
     Squeeze,
+    Unsqueeze,
     Split,
     Slice,
     Eltwise,
@@ -40,6 +42,7 @@ enum LayerType {
     Crop,
     LSTMCell,
     TensorIterator,
+    SoftSign,
     NO_TYPE
 };
 
@@ -58,6 +61,7 @@ static const InferenceEngine::details::caseless_map<std::string, GNAPluginNS::La
         { "Const" , Const },
         { "Reshape" , Reshape },
         { "Squeeze" , Squeeze },
+        { "Unsqueeze" , Unsqueeze },
         { "ScaleShift" , ScaleShift },
         { "Clamp" , Clamp },
         { "Concat" , Concat },
@@ -67,7 +71,9 @@ static const InferenceEngine::details::caseless_map<std::string, GNAPluginNS::La
         { "Memory" , Memory },
         { "Crop" , Crop },
         { "LSTMCell", LSTMCell },
-        { "TensorIterator", TensorIterator }
+        { "TensorIterator", TensorIterator },
+        { "Abs", Abs },
+        { "SoftSign", SoftSign }
 };
 
 GNAPluginNS::LayerType LayerTypeFromStr(const std::string &str);

@@ -33,6 +33,8 @@ double first_deriv_tanh(const double x) { return(1.0 - tanh(x) * tanh(x)); }
 
 double sigmoid(const double x) { return(0.5 * (1.0 + tanh(x / 2))); }
 double first_deriv_sigmoid(const double x) { return(sigmoid(x) * (1.0 - sigmoid(x))); }
+double softsign(const double x) { return(x / (1.0 + fabs(x))); }
+double first_deriv_softsign(const double x) { return(1.0 / ((1.0 + fabs(x)) * (1.0 + fabs(x)))); }
 double relu(const double x) { if (x < 0) { return(0.0); } else { return(x); } }
 double leaky_relu(const double x) { if (x < 0.0) { return(LEAKYRELU_SLOPE*x); } else { return(x); } }
 double clipping(const double x, const double lbound, const double ubound) { return((x < lbound)?lbound:((x > ubound)?ubound:x)); }
@@ -173,7 +175,9 @@ double calculate_error_pct(const DnnActivationType fun,
         case kActSigmoid:
             min_val = max_val = sigmoid(l_bound); break;
         case kActTanh:
-            min_val = max_val = tanh(l_bound); break;\
+            min_val = max_val = tanh(l_bound); break;
+        case kActSoftSign:
+            min_val = max_val = softsign(l_bound); break;
         default:
             break;
     }
@@ -187,6 +191,9 @@ double calculate_error_pct(const DnnActivationType fun,
                 break;
             case kActTanh:
                 val = tanh(arg);
+                break;
+            case kActSoftSign:
+                val = softsign(arg);
                 break;
             default:
                 break;
@@ -209,6 +216,7 @@ bool split_search(const DnnActivationType fun,
     switch (fun) {
         case kActSigmoid:
         case kActTanh:
+        case kActSoftSign:
             if ((l_bound < 0.0) && (u_bound > 0.0)) {
                 is_split = true;
             }
@@ -294,6 +302,10 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
                     if (u_bound == 0) negative = true;  // make left half convex
                     err = pivot_search(pwl, tanh, first_deriv_tanh, n_segments, l_bound, u_bound, threshold, negative);
                     break;
+                case kActSoftSign:
+                    if (u_bound == 0) negative = true;  // make left half convex
+                    err = pivot_search(pwl, softsign, first_deriv_softsign, n_segments, l_bound, u_bound, threshold, negative);
+                    break;
                 default:
                     break;
             }
@@ -308,6 +320,9 @@ std::vector<pwl_t> pwl_search(const DnnActivationType fun,
                     case kActTanh:
                         err = pivot_search(pwl, tanh, first_deriv_tanh, n_segments, l_bound, u_bound, threshold, negative);
                         break;
+                    case kActSoftSign:
+                        err = pivot_search(pwl, softsign, first_deriv_softsign, n_segments, l_bound, u_bound, threshold, negative);
+                            break;
                     default:
                         break;
                 }
@@ -337,6 +352,10 @@ void PwlDesignOpt16(const DnnActivation activation_type,
         case kActTanh:
             pwl = pwl_search(kActTanh, -TANH_DOMAIN, TANH_DOMAIN, PWL_DESIGN_THRESHOLD, PWL_MAX_ERR_PERCENT, PWL_DESIGN_SAMPLES, err_pct);
             make_gna_pwl(activation_type, pwl, -TANH_DOMAIN, TANH_DOMAIN, scale_in, scale_out, ptr_segment);
+            break;
+        case kActSoftSign:
+            pwl = pwl_search(kActSoftSign, -SOFTSIGN_DOMAIN, SOFTSIGN_DOMAIN, PWL_DESIGN_THRESHOLD, PWL_MAX_ERR_PERCENT, PWL_DESIGN_SAMPLES, err_pct);
+            make_gna_pwl(activation_type, pwl, -SOFTSIGN_DOMAIN, SOFTSIGN_DOMAIN, scale_in, scale_out, ptr_segment);
             break;
         case kActRelu:
             make_gna_pwl(activation_type, pwl, -1.0, 1.0, scale_in, scale_out, ptr_segment);
@@ -452,6 +471,50 @@ void PwlDesign16(const DnnActivation activation_type,
                              << " "
                              << (slope/scale_out)
                              << "\n";
+                }
+            }
+            break;
+        case kActSoftSign:
+            {
+                gnalog() << "=========================== SoftSign Segments===========================\n";
+                uint32_t num_segment_size = 0;
+                int32_t offset = 0;
+                ptr_segment[0].xBase = static_cast<int32_t>(INT32_MIN & XBASEMASK);  // zero out the 2 lsb
+                num_segment_size = static_cast<int32_t>(SOFTSIGN_DOMAIN * scale_in / ((num_segments - 2) / 2) + 0.5);
+                offset = -static_cast<int32_t>(num_segment_size * (num_segments - 2) / 2);
+                for (uint32_t i = 1; i < num_segments; i++) {
+                    ptr_segment[i].xBase = static_cast<int32_t>(offset & XBASEMASK);  // zero out the 2 lsb
+                    offset += num_segment_size;
+                }
+                for (uint32_t i = 0; i < num_segments; i++) {
+                    int32_t xbase = static_cast<int32_t>(ptr_segment[i].xBase & XBASEMASK);
+                    int32_t xbasenext = (i < num_segments - 1) ? static_cast<int32_t>(ptr_segment[i + 1].xBase & XBASEMASK) : INT32_MAX;
+                    float floatarg = static_cast<float>(xbase / (2 * scale_in));
+                    float floatargnext = static_cast<float>(xbasenext / (2 * scale_in));
+                    float floatval, floatvalnext, slope;
+                    floatval = softsign(floatarg);
+                    floatvalnext = softsign(floatargnext);
+                    slope = scale_out * (floatvalnext - floatval) / static_cast<float>(xbasenext - xbase);
+                    {
+                        // find best scale factor
+                        uint64_t slope_scale;
+                        uint32_t slope_scale_index;
+                        for (slope_scale_index = 3; slope_scale_index > 0; slope_scale_index--) {
+                            slope_scale = static_cast<uint64_t>(1) << (8 * (1 + slope_scale_index));
+                            if (((slope * slope_scale) <= 32767.0) && ((slope * slope_scale) >= -32768.0))
+                                break;
+                        }
+                        slope_scale = static_cast<uint64_t>(1) << (8 * (1 + slope_scale_index));
+                        ptr_segment[i].slope = FLOAT_TO_INT16(slope * slope_scale);
+                        ptr_segment[i].xBase = ptr_segment[i].xBase | slope_scale_index;
+                    }
+                    ptr_segment[i].yBase = FLOAT_TO_INT16(floatval * scale_out);
+                    gnalog() << (static_cast<int32_t>((ptr_segment[i].xBase & XBASEMASK)) / scale_out)
+                        << " "
+                        << (static_cast<float>((ptr_segment[i].yBase)) / scale_out)
+                        << " "
+                        << (slope / scale_out)
+                        << "\n";
                 }
             }
             break;
@@ -617,6 +680,13 @@ void PwlApply32(intel_dnn_component_t *component,
             for (uint32_t i = num_row_start; i <= num_row_end; i++) {
                 for (uint32_t j = num_col_start; j <= num_col_end; j++) {
                     ptr_out[i * num_columns + j] = tanh(ptr_in[i * num_columns + j]);
+                }
+            }
+            break;
+        case kActSoftSign:
+            for (uint32_t i = num_row_start; i <= num_row_end; i++) {
+                for (uint32_t j = num_col_start; j <= num_col_end; j++) {
+                    ptr_out[i * num_columns + j] = ptr_in[i * num_columns + j] / (1.0 + fabs(ptr_in[i * num_columns + j]));
                 }
             }
             break;

@@ -35,6 +35,8 @@ using namespace InferenceEngine;
 using namespace InferenceEngine::details;
 using namespace GNAPluginNS;
 
+#define pass_trace() gnalog() << "[" << getName() << "]"
+
 std::shared_ptr<IPassManager> BasePass::getPassManager() {
     auto sharedMgr = mgr.lock();
     if (!sharedMgr) {
@@ -46,6 +48,7 @@ std::shared_ptr<IPassManager> BasePass::getPassManager() {
 // indexes stored in pass manager
 static const char diagonalLayersCounterName[] = "diagonalLayerCounter";
 static const char copyLayersCounter[] = "numCopyLayers";
+static const char softSignLayersCounter[] = "numSoftSignLayers";
 
 /**
  * @brief helper injections of diagonal layer with certain value
@@ -266,6 +269,79 @@ void ReorderMaxPoolPass::run() {
     }
 }
 
+void SubstituteSoftSignPass::run() {
+    auto hasNChildren = [](CNNLayerPtr l, int N){
+        if (l->outData.size() != 1) return false;
+        if (l->outData.front()->getInputTo().size() != N) return false;
+        return true;
+    };
+    auto getNthChild = [](CNNLayerPtr l, int N) {
+        auto first = l->outData.front()->getInputTo().begin();
+        std::advance(first, N);
+        return first->second;
+    };
+    for (auto & l : *pLayers) {
+        if (!hasNChildren(l, 2)) continue;
+        auto mul = getNthChild(l, 0);
+        auto abs = getNthChild(l, 1);
+
+        bool cont = true;
+        if (LayerInfo(mul).isEltwiseMul() && LayerInfo(abs).isAbs()) {
+            cont = false;
+        }
+        if (cont && LayerInfo(abs).isEltwiseMul() && LayerInfo(mul).isAbs()) {
+            std::swap(mul, abs);
+            cont = false;
+        }
+        if (cont) continue;
+        if (!hasNChildren(abs, 1)) continue;
+        auto power = getNthChild(abs, 0);
+
+        if (!LayerInfo(power).isPower()) continue;
+        auto powerLayer = LayerInfo(power).as<PowerLayer*>();
+        if (powerLayer->power != -1) continue;
+        if (powerLayer->offset != 1) continue;
+        if (powerLayer->scale != 1) continue;
+
+        if (!hasNChildren(power, 1)) continue;
+        auto mulSame = getNthChild(power, 0);
+        if (mulSame != mul) continue;
+
+        // pattern matched - lets substitute
+        gnalog() << "SoftSign subgraph found consits of: \n"
+                 << "\t" << abs->name << "\n"
+                 << "\t" << power->name << "\n"
+                 << "\t" << mul->name << "\n"
+                 << std::endl;
+
+        // creating softsign layer
+        auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(l);
+        auto layerName = std::string("Synthetic_SoftSign_")
+                + std::to_string(getPassManager()->getIntVar(softSignLayersCounter)++);
+
+        CNNLayerPtr activationLayer =
+                std::make_shared<GenericLayer>(LayerParams({layerName, "SoftSign", Precision::FP32}));
+        auto activationLayerWithQuant = quantized ?
+                                        InferenceEngine::injectData<QuantizedLayerParams>(activationLayer) :
+                                        activationLayer;
+
+        auto mulData = mul->outData;
+
+        // rebind outdata of mull to be outdata of softsign
+        for (auto && data : mulData) {
+            data->getCreatorLayer() = activationLayerWithQuant;
+            data->setName("softsign_data_" + getPassManager()->getIntVar(softSignLayersCounter));
+            activationLayerWithQuant->outData.push_back(data);
+        }
+
+        // making connection l->softsign
+        l->outData.front()->getInputTo().clear();
+        l->outData.front()->getInputTo()[layerName] = activationLayerWithQuant;
+
+        // making back connection softsign->mul
+        activationLayerWithQuant->insData.push_back(l->outData.front());
+    }
+}
 void SubstitutePReluPass::run() {
     auto getScale = [](CNNLayer* layer) {
         auto powerCandidate = LayerInfo(layer);
@@ -961,16 +1037,16 @@ void RemoveConstPass::run() {
     transformer.fullTrim();
 }
 
-void PassManager::run() {
-    int index = 0;
+int PassManager::run(int index) {
 // #define PLOT
 #ifdef PLOT
     auto dumpNetworkAfterPass = [&index, this] (std::shared_ptr<Pass> pass) {
-        std::string name = std::string("gna_passes_") + (index < 10 ? "0" : "") + std::to_string(index) + "_" + pass->getName() + ".dot";
-        std::ofstream out(name);
+        std::string name = std::string("gna_passes_") + (index < 10 ? "0" : "") + std::to_string(index) + "_" + pass->getName();
+        std::ofstream out(name + ".dot");
         saveGraphToDot(*network.get(), out, [](const CNNLayerPtr layer,
                                                ordered_properties &printed_properties,
                                                ordered_properties &node_properties) {});
+        network->serialize(name + ".xml", "", nullptr);
     };
 #else
     auto dumpNetworkAfterPass = [] (std::shared_ptr<Pass> ) {};
@@ -986,4 +1062,5 @@ void PassManager::run() {
         pass->run();
         dumpNetworkAfterPass(pass);
     }
+    return index;
 }

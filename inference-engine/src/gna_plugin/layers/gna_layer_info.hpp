@@ -68,7 +68,7 @@ class LayerInfo {
         IS_VALID();
         static InferenceEngine::details::caseless_set<std::string> activations =
             { "clamp", "sigmoid", "identity", "relu",
-              "leakyrelu", "tanh", "prelu", "exp", "log", "sign", "abs", "neghalflog"};
+              "leakyrelu", "tanh", "prelu", "exp", "log", "sign", "abs", "neghalflog", "softsign"};
         return activations.find(layer->type) != activations.end();
     }
 
@@ -134,6 +134,9 @@ class LayerInfo {
         return dynamic_cast<const InferenceEngine::EltwiseLayer*>(layer)->_operation ==
             InferenceEngine::EltwiseLayer::Prod;
     }
+    bool isAbs() const noexcept {
+        return isOfType("abs");
+    }
     bool isIdentity() const noexcept {
         return isOfType("identity");
     }
@@ -150,7 +153,7 @@ class LayerInfo {
         return isOfType("concat");
     }
     bool isNonFunctional() const noexcept {
-        return isOfType("reshape") || isOfType("squeeze");
+        return isOfType("reshape") || isOfType("squeeze") || isOfType("unsqueeze");
     }
     bool isPermute() const noexcept {
         return isOfType("permute");

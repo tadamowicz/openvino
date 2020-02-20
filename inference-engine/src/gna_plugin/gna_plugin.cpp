@@ -349,6 +349,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
     }
 
     // network optimisation phases
+    int passIdx = 0;
     auto run_passes = [&] (const CNNNetPtr& network, bool runBeforeCopy) {
         auto passes = make_shared<PassManager>(policy, network, runBeforeCopy);
         passes->registerPass<RemoveConstPass>();
@@ -357,6 +358,8 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         passes->registerPass<UnrollLSTMCellPass>();
 
         passes->registerPass<SubstitutePReluPass>();
+        passes->registerPass<SubstituteSoftSignPass>();
+
         passes->registerPass<ReorderMaxPoolPass>();
         passes->registerPass<InsertSplitAligningFilterPass>();
 
@@ -370,7 +373,7 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         passes->registerPass<InsertDiagonalLayerPass>();
         passes->registerPass<HandleMultipleActivationsForTheLayerPass>();
         passes->registerPass<SubstituteScaleShiftBroadCastPass>();
-        passes->run();
+        passIdx = passes->run(passIdx);
     };
 
     ICNNNetwork::Ptr newNet;

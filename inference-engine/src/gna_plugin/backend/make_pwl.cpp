@@ -21,7 +21,8 @@ void make_gna_pwl(const DnnActivation  fun,
     uint32_t pwl_size = static_cast<int32_t>(pwl.size());
     switch (fun) {
         case kActSigmoid:
-        case kActTanh: {
+        case kActTanh:
+        case kActSoftSign: {
             auto n_segments = static_cast<int32_t> (pwl_size) + 1;
             gna_pwl.resize(n_segments);
             // insert extra segment for x values < l_bound
@@ -30,8 +31,12 @@ void make_gna_pwl(const DnnActivation  fun,
                 gnalog() <<  "=========================== Sigmoid Segments ===========================\n";
                 gna_pwl[0].yBase = gna_pwl[1].yBase = 0;
                 gna_pwl[1].xBase = (static_cast<int32_t> (in_scale * (-pwl[0].b / pwl[0].m))) & XBASEMASK;
-            } else {
+            } else if (fun == kActTanh) {
                 gnalog() <<  "=========================== Tanh Segments ===========================\n";
+                gna_pwl[0].yBase = gna_pwl[1].yBase = static_cast<int16_t>(-1.0 * out_scale);
+                gna_pwl[1].xBase = (static_cast<int32_t> (in_scale * (-1.0 - pwl[0].b) / pwl[0].m)) & XBASEMASK;
+            } else {
+                gnalog() << "=========================== SoftSign Segments ===========================\n";
                 gna_pwl[0].yBase = gna_pwl[1].yBase = static_cast<int16_t>(-1.0 * out_scale);
                 gna_pwl[1].xBase = (static_cast<int32_t> (in_scale * (-1.0 - pwl[0].b) / pwl[0].m)) & XBASEMASK;
             }

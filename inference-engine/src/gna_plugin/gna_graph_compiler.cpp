@@ -1202,7 +1202,8 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
         {"relu", kActRelu},
         {"leakyrelu", kActLeakyRelu},
         {"clamp", kActKaldiLstmClipping},
-        {"identity", kActIdentity}
+        {"identity", kActIdentity},
+        {"softsign", kActSoftSign}
     };
 
     auto it = supportedActivations.find(type);
@@ -1231,6 +1232,7 @@ case name:\
         GET_ACTIVATION_NAME(kActLeakyRelu);
         GET_ACTIVATION_NAME(kActKaldiLstmClipping);
         GET_ACTIVATION_NAME(kActIdentity);
+        GET_ACTIVATION_NAME(kActSoftSign);
     default: break;
     }
 #endif
@@ -1254,6 +1256,8 @@ case name:\
                 break;
             case kActKaldiLstmClipping:
             case kActIdentity:ptr_pwl_segments.resize(IDENTITY_NUM_SEGMENTS);
+                break;
+            case kActSoftSign:ptr_pwl_segments.resize(SOFTSIGN_NUM_SEGMENTS);
                 break;
             case kActCustom:
             default:THROW_GNA_EXCEPTION << "Activation function type not yet supported " << activation_type;
@@ -1338,7 +1342,7 @@ void GNAGraphCompiler::CreateLayerPrimitive(CNNLayerPtr layer) {
         {{"Split"}, SKIP},  // skip information about which part of prev layer need to consume handle during layer creation
         {{"Slice"}, SKIP},
         {{"link"}, SKIP},
-        {{"clamp", "sigmoid", "relu", "tanh", "identity"}, CREATE(PWLPrimitive)},
+        {{"clamp", "sigmoid", "relu", "tanh", "identity", "softsign"}, CREATE(PWLPrimitive)},
         {{"Convolution"}, CREATE(ConvolutionPrimitive)},
         {{"Permute"}, CREATE(PermutePrimitive)},  // permute of certain form (2D transpose) can be assimilated in followed FC layer
         {{"Pooling"}, CREATE(PoolingPrimitive)},
