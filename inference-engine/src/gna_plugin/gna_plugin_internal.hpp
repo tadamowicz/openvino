@@ -18,11 +18,7 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
     InferenceEngine::ExecutableNetworkInternal::Ptr LoadExeNetworkImpl(const InferenceEngine::ICore * core,
                                                 const InferenceEngine::ICNNNetwork &network,
                                                 const std::map<std::string, std::string> &config) override {
-        auto clonedNetwork = CloneNetwork(network);
-        ConstTransformer transformator(clonedNetwork.get());
-        transformator.fullTrim();
-
-        return std::make_shared<GNAExecutableNetwork>(clonedNetwork, config);
+        return std::make_shared<GNAExecutableNetwork>(*CloneNetwork(network), config);
     }
     void SetConfig(const std::map<std::string, std::string> &config) override {
         auto plg = std::make_shared<GNAPlugin>();
@@ -38,10 +34,6 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
     std::string GetName() const noexcept override {
         auto plg = std::make_shared<GNAPlugin>();
         return plg->GetName();
-    }
-
-    InferenceEngine::ICNNNetwork&  RemoveConstLayers(InferenceEngine::ICNNNetwork &network) override {
-        return network;
     }
 
     void QueryNetwork(const InferenceEngine::ICNNNetwork& network,
