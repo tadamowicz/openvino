@@ -44,6 +44,7 @@ add_library(${TARGET_NAME}_test_static STATIC ${SOURCES} ${HEADERS})
 target_compile_definitions(${TARGET_NAME}_test_static
         PRIVATE
             _NO_MKL_
+            IMPLEMENT_INFERENCE_ENGINE_PLUGIN
         PUBLIC
             GNA_LIB_VER=${GNA_LIBRARY_VERSION_NUMBER}
             INTEGER_LOW_P
