@@ -145,7 +145,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                         InferenceEngine::CNNLayerPtr  restartedLayer;
 
                         gnalog() << "Memory layer :"<< input->name << " scale factor: " << quantSibling->_dst_quant.scale
-                            << " doen't match its outputs counterpart: " << cnnLayer->name << " scale factor: " << inputQuant->_dst_quant.scale << "\n";
+                            << " doesn't match its outputs counterpart: " << cnnLayer->name << " scale factor: " << inputQuant->_dst_quant.scale << "\n";
                         gnalog() << "[UFS] searching for quantizeable input layer for: "<< cnnLayer->name << "\n";
 
                         CNNNetDFS(InferenceEngine::CNNLayerPtr(cnnLayer, [](InferenceEngine::CNNLayer *) {}),
@@ -334,7 +334,7 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
         }
         // support only cases when one of input is network input
         if (infoIn0.isInput() && infoIn1.isInput()) {
-            THROW_GNA_EXCEPTION << "Two Input layers has different scales in concat!!! \n";
+            THROW_GNA_EXCEPTION << "Two Input layers " << in0->name << "and" << in1->name << " has different scales in concat!!! \n";
         }
 
         int concatIdxToUpdate = -1;

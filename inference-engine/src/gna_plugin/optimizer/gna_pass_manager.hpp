@@ -53,7 +53,7 @@ class PassName##Pass : public BasePass {\
     using BasePass::BasePass;\
     void run() override;\
     std::string getName() const override { return #PassName;}\
-};
+}
 
 #define DECL_PASS_BEFORE_COPY(PassName) \
 class PassName##Pass : public BasePass {\
@@ -62,7 +62,7 @@ class PassName##Pass : public BasePass {\
     void run() override;\
     bool runBeforeCopyPass() override { return true; };\
     std::string getName() const override { return #PassName;}\
-};
+}
 
 /**
 * @brief GNA affine layers are always have activation attached, while IR not
@@ -87,7 +87,6 @@ DECL_PASS(ReversePermutations);
 
 /**
  * brief @search for specific patter in the graph (6 layers are replaced by single one)
- * @param layers
  */
 DECL_PASS(SubstitutePRelu);
 

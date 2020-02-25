@@ -6,6 +6,7 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 #include "inference_engine.hpp"
 #include "details/caseless.hpp"
 #include "ie_algorithm.hpp"
@@ -55,10 +56,24 @@ class LayerInfo {
     }
     bool has32BOutput() const noexcept {
         IS_VALID();
-        static  InferenceEngine::details::caseless_set<std::string> layersWith32BOutputs =
-                {"FullyConnected", "InnerProduct", "AffineFilter", "ConcatAlignFilter", "Eltwise", "ScaleShift", "Convolution", "Pooling", "Power"};
-        return (layersWith32BOutputs.find(layer->type) != layersWith32BOutputs.end()) ||
-                                                            (isCrop() && isCropAffined());
+        std::vector<std::function<bool()>> has32BOutputsProbes = {
+            [this]() { return isFullyConnected(); },
+            [this]() { return isAffineFilter(); },
+            [this]() { return isConcatAlignFilter(); },
+            [this]() { return isEltwise(); },
+            [this]() { return isScaleShift(); },
+            [this]() { return isConvolution(); },
+            [this]() { return isPooling(); },
+            [this]() { return isPower(); },
+            [this]() { return isCropAffined(); }
+        };
+
+        for (auto && has32BOutputs : has32BOutputsProbes) {
+            if (has32BOutputs()) {
+                return true;
+            }
+        }
+        return false;
     }
     static bool isBatchSizeConstrained(const std::string name) {
         static InferenceEngine::details::caseless_set<std::string> layersWithConstrains = {"memory", "convolution"};

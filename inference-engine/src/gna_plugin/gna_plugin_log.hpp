@@ -68,3 +68,6 @@ inline GnaLog & gnawarn() {
 
 
 #define THROW_GNA_EXCEPTION THROW_IE_EXCEPTION << "[GNAPlugin] in function " << __PRETTY_FUNCTION__<< ": "
+#define THROW_GNA_LAYER_EXCEPTION(layer) THROW_GNA_EXCEPTION << LAYER_NAME(layer)
+#define LAYER_NAME(layer) layer->type << " layer : \"" << layer->name << "\" "
+

@@ -1529,9 +1529,6 @@ void GNAPluginNS::backend::AMIntelDNN::InitGNAStruct(intel_nnet_type_t *ptr_nnet
                     auto pConvolutionalLayer = reinterpret_cast<intel_convolutional_layer_t *>(pLayer->pLayerStruct);
                     pConvolutionalLayer->pwl.nSegments = component[i].op.pwl.num_segments;
                     pConvolutionalLayer->pwl.pSegments = component[i].op.pwl.ptr_segments;
-                    if (component[i - 1].operation != kDnnMaxPoolOp) {
-                        pLayer->nOutputColumns = component[i].num_columns_out;
-                    }
                 }
                 pLayer++;
 #endif

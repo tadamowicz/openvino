@@ -23,13 +23,15 @@
 #include <details/ie_cnn_network_tools.h>
 #include <ie_util_internal.hpp>
 #include <graph_tools.hpp>
+#include <net_pass.h>
+
+#include "gna_plugin_log.hpp"
 #include "frontend/quantized_layer_params.hpp"
 #include "gna_graph_tools.hpp"
 #include "gna_pass_manager.hpp"
 #include "layers/gna_layer_info.hpp"
-#include "gna_plugin_log.hpp"
 #include "gna_upstream_iterator.hpp"
-#include "net_pass.h"
+
 
 using namespace InferenceEngine;
 using namespace InferenceEngine::details;
@@ -121,6 +123,15 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
     auto eltwise = dynamic_cast<InferenceEngine::EltwiseLayer *>(l.get());
     auto concat = dynamic_cast<InferenceEngine::ConcatLayer *>(l.get());
 
+    auto PrevFunctionalLayer = [](CNNLayerPtr l, int idx = 0) {
+        auto prevLayer = CNNNetPrevLayerSkipCertain(l, idx, [](CNNLayerPtr ptr) {
+            return LayerInfo(ptr).isNonFunctional();
+        });
+        gnalog() << "CNNNetPrevLayerSkipCertain for :: " << l->name << "returned: " << prevLayer->name << std::endl;
+        return prevLayer;
+    };
+
+
     // eltwise
     if (eltwise != nullptr) {
         // eltwise layer has 2 inputs, so depends on situation identity should or should not be inserted
@@ -169,23 +180,24 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
         }
     } else if (concat != nullptr) {
         for (int i = 0; CNNNetHasPrevLayer(l.get(), i); ++i) {
-            auto prev = CNNNetPrevLayer(l, i);
+            auto prev = PrevFunctionalLayer(l, i);
             if (LayerInfo(prev).has32BOutput()) {
-                prevLayers.push_back(prev);
+                prevLayers.push_back(CNNNetPrevLayer(l, i));
             }
         }
     } else {
         // not eltwise or concat
         // other layers has 1 inputs - situation is easier
         // ex. activation or pooling - no need to insert identity activation.
-        if (LayerInfo(l).has32BInput())
+        if (LayerInfo(l).isNonFunctional() || LayerInfo(l).has32BInput())
             return prevLayers;
 
-        auto prevLayer = CNNNetPrevLayer(l);
+        auto prevLayer = PrevFunctionalLayer(l, 0);
+
         if (!LayerInfo(prevLayer).has32BOutput())
             return prevLayers;
 
-        prevLayers.push_back(prevLayer);
+        prevLayers.push_back(CNNNetPrevLayer(l, 0));
     }
     return prevLayers;
 }
@@ -193,7 +205,9 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
 void InsertDiagonalLayerPass::run() {
     for (auto & l : *pLayers) {
         if (l->insData.empty()) continue;
-        auto prevLayer = CNNNetPrevLayer(l);
+        auto prevLayer = CNNNetPrevLayerSkipCertain(l, 0, [](CNNLayerPtr ptr) {
+            return LayerInfo(ptr).isNonFunctional();
+        });
         if (LayerInfo(l).isActivation()) {
             if (LayerInfo(prevLayer).has32BOutput()) {
                 continue;
@@ -215,11 +229,14 @@ void InsertDiagonalLayerPass::run() {
             if (eltwise->_operation != EltwiseLayer::Sum)
                 continue;
 
-            auto prevLayer1 = CNNNetPrevLayer(l, 1);
+            auto prevLayer1 = CNNNetPrevLayerSkipCertain(l, 1, [](CNNLayerPtr ptr) {
+                return LayerInfo(ptr).isNonFunctional();
+            });
             if (!LayerInfo(prevLayer).has16BOutput() || !LayerInfo(prevLayer1).has16BOutput())
                 continue;
         }
-        insertDiagonalLayerBetween(prevLayer, l, getPassManager(), 1.f);
+        auto prevDirectLayer = CNNNetPrevLayer(l, 0);
+        insertDiagonalLayerBetween(prevDirectLayer, l, getPassManager(), 1.f);
     }
 }
 
@@ -590,14 +607,21 @@ void InsertIdentityLayerPass::run() {
     }
 }
 
+/**
+ * @brief returns previous layers and insData index for it
+ * @tparam T
+ * @param origin
+ * @param acceptanceCriteria
+ * @param idx
+ */
 // give previous layers while skipping certain layer according to expression
 template <class T>
-std::vector<CNNLayerPtr> CNNNetGetPrevLayersSkip(CNNLayerPtr origin, const T &acceptanceCriteria, int idx = -1) {
-    std::vector<CNNLayerPtr> prevLayers;
+std::vector<std::pair<CNNLayerPtr, int> > CNNNetGetPrevLayersSkip(CNNLayerPtr origin, const T &acceptanceCriteria, int idx = -1) {
+    std::vector<std::pair<CNNLayerPtr, int> > prevLayers;
     for (int i = idx == -1 ? 0 : idx; CNNNetHasPrevLayer(origin.get(), i) && (idx == -1 || i == idx); i++) {
         auto prevLayer = CNNNetPrevLayer(origin, i);
         if (acceptanceCriteria(prevLayer)) {
-            prevLayers.push_back(prevLayer);
+            prevLayers.push_back({prevLayer, CNNLayerFindOutDataIdx(origin, i)});
         } else {
             // if for some input we need to look in upper layers - original index not used here intentionally
             auto prevPrevLayers = CNNNetGetPrevLayersSkip(prevLayer, acceptanceCriteria);
@@ -616,9 +640,22 @@ void InsertCopyLayerPass::run() {
         });
 
         for (int i=0; i != prevLayers.size(); i++) {
-            auto & prevIndirectLayer = prevLayers[i];
-            if ((LayerInfo(l).isMemory() && LayerInfo(prevIndirectLayer).isConcat()) ||
-                (LayerInfo(l).isConcat() && LayerInfo(prevIndirectLayer).isCrop())) {
+            auto & prevIndirectLayer = prevLayers[i].first;
+            bool bInsert = false;
+            if (LayerInfo(l).isMemory()) {
+                if (LayerInfo(prevIndirectLayer).isConcat()) { bInsert = true;}
+                // memory usualy preceded by either activation or split, or other layers in order to have 2b precision
+                for (auto && inputto : prevLayers[i].first->outData[prevLayers[i].second]->getInputTo()) {
+                    // if preceding layer is common for memory and concat
+                    if (LayerInfo(inputto.second).isConcat()) {
+                        bInsert = true;
+                        break;
+                    }
+                }
+            }
+            if (LayerInfo(l).isConcat() && LayerInfo(prevIndirectLayer).isCrop()) { bInsert = true; }
+
+            if (bInsert) {
                 if (LayerInfo(prevIndirectLayer).isCrop()) {
                     auto cropLayer = LayerInfo(prevIndirectLayer).as<CropLayer *>();
                     size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
@@ -649,7 +686,7 @@ void InsertConcatAligningFilterPass::run() {
     for (auto & l : *pLayers) {
         LayerInfo info(l);
         if (!info.isConcat()) continue;
-        uint32_t offset = 0;
+        size_t offset = 0;
         auto concatLayer = info.as<ConcatLayer*>();
 
         for (auto input_idx = 0; input_idx != concatLayer->insData.size(); input_idx++) {
@@ -783,7 +820,7 @@ void ReorderConcatInputsPass::run() {
             THROW_GNA_EXCEPTION << "cannot locate first input into concat layer: " << l;
         }
 
-        auto firstInputToConcat = inputsToConcatFirst.front();
+        auto firstInputToConcat = inputsToConcatFirst.front().first;
 
         // concat has first input of concat align filter - dont need to reorder it
         if (firstInputToConcat == l) {
