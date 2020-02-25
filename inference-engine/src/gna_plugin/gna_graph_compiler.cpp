@@ -218,14 +218,14 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     }
 
     uint32_t num_feature_map_rows = w_dim_in / convolution._stride_x;
-    uint32_t num_feature_map_columns = c_dim_in * convolution._stride_x / num_feature_maps;
+    uint32_t num_feature_map_columns = c_dim_in * convolution._stride_x;
 
     uint32_t num_columns_in = c_dim_in;
     uint32_t num_rows_out = w_dim_out;
 
     // padding of convolution kernel to be multiply of 8
-    uint32_t num_conv_kernel_padding = ALIGN(convolution._kernel_x * num_feature_map_columns * num_feature_maps, 8)
-        - convolution._kernel_x * num_feature_map_columns * num_feature_maps;
+    uint32_t num_conv_kernel_padding = ALIGN(convolution._kernel_x * num_feature_map_columns, 8)
+        - convolution._kernel_x * num_feature_map_columns;
     void* ptr_inputs = nullptr;
     void* ptr_outputs = nullptr;
     void* ptr_weights = nullptr;
@@ -237,7 +237,7 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "convolution");
 
     // have to pad input to let last kernel meets it's corresponding input
-    auto num_inputs = num_feature_maps * num_feature_map_columns * num_feature_map_rows + num_conv_kernel_padding;
+    auto num_inputs = num_feature_map_columns * num_feature_map_rows + num_conv_kernel_padding;
     auto num_input_padding = ALIGN(num_inputs, 8) - num_inputs;
     auto num_filter_rows = convolution._kernel_x / convolution._stride_x;
     dnn->InitConvolutional1DComponent(currentComponent,
@@ -251,21 +251,16 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
         biasPrecision.size(),
         convolution._out_depth,
         num_filter_rows,
-        num_feature_maps * num_feature_map_columns * num_filter_rows + num_conv_kernel_padding,
-
-        num_feature_maps,  // interesting - why this is so in gna_example
+        num_feature_map_columns * num_filter_rows + num_conv_kernel_padding,
+        1,
         num_feature_map_rows,
         num_feature_map_columns,
-
         quantized == nullptr ? 1 : quantized->_weights_quant.scale,
         quantized == nullptr ? 1 : quantized->_dst_quant.scale,
         ptr_inputs,
         ptr_outputs,
         ptr_weights,
         ptr_biases);
-
-    // update num_feature_maps for next convolutional layer
-    num_feature_maps = convolution._out_depth;  // = number of filters
 
     size_t num_data_bytes_out =
         InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims()))
@@ -493,7 +488,7 @@ void GNAGraphCompiler::CopyPrimitive(InferenceEngine::CNNLayerPtr layer) {
     uint32_t num_padding_out = ALIGN(num_rows_out, 8) - num_rows_out;
     void* ptr_inputs = nullptr;
     void* ptr_outputs = nullptr;
-    auto orientation = (num_cnn_rows_out > 0) ? kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
+    auto orientation = kDnnInterleavedOrientation;
 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "copy");
 
@@ -1180,7 +1175,7 @@ void GNAGraphCompiler::PWLPrimitive(InferenceEngine::CNNLayerPtr layer) {
     float output_pwl_scale_factor = quantized != nullptr ? quantized->_dst_quant.scale : 1.0f;
     float input_pwl_scale_factor = quantized != nullptr ? quantized->_src_quant.scale : 1.0f;
 
-    auto orientation = (num_cnn_rows_out > 0) ? kDnnNonInterleavedOrientation : kDnnInterleavedOrientation;
+    auto orientation = kDnnInterleavedOrientation;
 
     if (inputs->getDims().size() == 4) {
         uint32_t w_dim_in = FROM_IR_DIM(inputs, 1);
