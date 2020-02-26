@@ -18,7 +18,7 @@ class GNAPluginInternal  : public InferenceEngine::InferencePluginInternal {
     InferenceEngine::ExecutableNetworkInternal::Ptr LoadExeNetworkImpl(const InferenceEngine::ICore * core,
                                                 const InferenceEngine::ICNNNetwork &network,
                                                 const std::map<std::string, std::string> &config) override {
-        return std::make_shared<GNAExecutableNetwork>(*CloneNetwork(network), config);
+        return std::make_shared<GNAExecutableNetwork>(*cloneNet(network), config);
     }
     void SetConfig(const std::map<std::string, std::string> &config) override {
         auto plg = std::make_shared<GNAPlugin>();
