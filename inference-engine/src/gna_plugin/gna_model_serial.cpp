@@ -377,21 +377,33 @@ void GNAModelSerial::Import(void *basePointer, size_t gnaGraphSize, std::istream
             break;
         }
 
+        case INTEL_COPY: {
+            layer->pLayerStruct = _mm_malloc(sizeof(intel_copy_layer_t), 64);
+            if (layer->pLayerStruct == nullptr) {
+                THROW_GNA_EXCEPTION << "could not allocate memory for intel_copy_layer_t structure.";
+            }
+
+            auto &copy = *reinterpret_cast<intel_copy_layer_t *>(layer->pLayerStruct);
+            readBits(copy.nCopyRows, is);
+            readBits(copy.nCopyCols, is);
+            break;
+        }
+
         case INTEL_RECURRENT:
             THROW_GNA_EXCEPTION << "Importing of recurrent layer not supported";
         case INTEL_INTERLEAVE:
             THROW_GNA_EXCEPTION << "Importing of interleave layer not supported";
         case INTEL_DEINTERLEAVE:
             THROW_GNA_EXCEPTION << "Importing of deinterleave layer not supported";
-        case INTEL_COPY:
-            THROW_GNA_EXCEPTION << "Importing of copy layer not supported";
         default:
             THROW_GNA_EXCEPTION << "Importing of unknown GNA layer kind(" << layer->nLayerKind << ")  not supported";
         }
 
         // reading offsets of inputs/outputs
         readOffset(layer->pInputs, basePointer, is);
-        readOffset(layer->pOutputsIntermediate, basePointer, is);
+        if (layer->nLayerKind != INTEL_COPY) {
+            readOffset(layer->pOutputsIntermediate, basePointer, is);
+        }
         readOffset(layer->pOutputs, basePointer, is);
     }
 
@@ -437,7 +449,7 @@ void GNAModelSerial::Export(void * basePointer, size_t gnaGraphSize, std::ostrea
         auto offset = static_cast<uint64_t >(std::distance(reinterpret_cast<uint8_t*>(basePointer), reinterpret_cast<uint8_t*>(pointer)));
         if (offset > gnaGraphSize) {
             THROW_GNA_EXCEPTION << "offset to " << (name == nullptr ? "" : name) << "(0x" << pointer
-                               << ") not in range segment retuned from GNAAlloc(0x" << basePointer << "-0x"
+                               << ") not in range segment returned from GNAAlloc(0x" << basePointer << "-0x"
                                << reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(basePointer) + gnaGraphSize) << ")";
         }
         return offset;
@@ -522,21 +534,28 @@ void GNAModelSerial::Export(void * basePointer, size_t gnaGraphSize, std::ostrea
                 break;
             }
 
+            case INTEL_COPY: {
+                auto &copy = *reinterpret_cast<intel_copy_layer_t *>(layer.pLayerStruct);
+                writeBits(copy.nCopyRows, os);
+                writeBits(copy.nCopyCols, os);
+                break;
+            }
+
             case INTEL_RECURRENT:
                 THROW_GNA_EXCEPTION << "Exporting of recurrent layer not supported";
             case INTEL_INTERLEAVE:
                 THROW_GNA_EXCEPTION << "Exporting of interleave layer not supported";
             case INTEL_DEINTERLEAVE:
                 THROW_GNA_EXCEPTION << "Exporting of deinterleave layer not supported";
-            case INTEL_COPY:
-                THROW_GNA_EXCEPTION << "Exporting of copy layer not supported";
             default:
                 THROW_GNA_EXCEPTION << "Exporting of unknown GNA layer kind(" << layer.nLayerKind << ")  not supported";
         }
 
         // writing offsets from base.
         writeBits(offsetFromBase(layer.pInputs), os);
-        writeBits(offsetFromBase(layer.pOutputsIntermediate), os);
+        if (layer.nLayerKind != INTEL_COPY) {
+            writeBits(offsetFromBase(layer.pOutputsIntermediate), os);
+        }
         writeBits(offsetFromBase(layer.pOutputs), os);
     }
     // writing memory information
