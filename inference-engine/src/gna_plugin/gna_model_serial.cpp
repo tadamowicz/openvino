@@ -117,6 +117,7 @@ const std::map<Gna2OperationType, std::vector<uint32_t>> GnaParamSize{
         sizeof(Gna2Shape),
         sizeof(Gna2Shape),
         sizeof(Gna2Shape)}},
+    {Gna2OperationTypeCopy, {sizeof(Gna2Shape)}},
 };
 
 void GNAModelSerial::Import(void *basePointer, size_t gnaGraphSize, std::istream & is) {
@@ -142,13 +143,12 @@ void GNAModelSerial::Import(void *basePointer, size_t gnaGraphSize, std::istream
         case Gna2OperationTypeElementWiseAffine:
         case Gna2OperationTypeFullyConnectedAffine:
         case Gna2OperationTypeConvolution:
+        case Gna2OperationTypeCopy:
             break;
         case Gna2OperationTypeRecurrent:
             THROW_GNA_EXCEPTION << "Importing of recurrent operation not supported";
         case Gna2OperationTypeTransposition:
             THROW_GNA_EXCEPTION << "Importing of transposition operation not supported";
-        case Gna2OperationTypeCopy:
-            THROW_GNA_EXCEPTION << "Importing of copy operation not supported";
         default:
             THROW_GNA_EXCEPTION << "Importing of unknown GNA operation type(" << operation->Type << ")  not supported";
         }
@@ -282,13 +282,12 @@ void GNAModelSerial::Export(void * basePointer, size_t gnaGraphSize, std::ostrea
         case Gna2OperationTypeElementWiseAffine:
         case Gna2OperationTypeFullyConnectedAffine:
         case Gna2OperationTypeConvolution:
+        case Gna2OperationTypeCopy:
             break;
         case Gna2OperationTypeRecurrent:
             THROW_GNA_EXCEPTION << "Exporting of recurrent operation not supported";
         case Gna2OperationTypeTransposition:
             THROW_GNA_EXCEPTION << "Exporting of interleave operation not supported";
-        case Gna2OperationTypeCopy:
-            THROW_GNA_EXCEPTION << "Exporting of copy operation not supported";
         default:
             THROW_GNA_EXCEPTION << "Exporting of unknown GNA operation type(" << layer.Type << ")  not supported";
         }
