@@ -30,7 +30,8 @@ class GNAExecutableNetwork : public InferenceEngine::ExecutableNetworkThreadSafe
 
     GNAExecutableNetwork(InferenceEngine::ICNNNetwork &network, const std::map<std::string, std::string> &config)
         : plg(std::make_shared<GNAPlugin>(config)) {
-            InferenceEngine::NetPass::ConvertPrecision(network, InferenceEngine::Precision::I64, InferenceEngine::Precision::I32);
+        InferenceEngine::NetPass::ConvertPrecision(network, InferenceEngine::Precision::I64, InferenceEngine::Precision::I32);
+        InferenceEngine::NetPass::ConvertPrecision(network, InferenceEngine::Precision::U64, InferenceEngine::Precision::I32);
         plg->LoadNetwork(network);
     }
 
