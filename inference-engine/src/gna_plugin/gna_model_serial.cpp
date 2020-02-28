@@ -400,7 +400,9 @@ void GNAModelSerial::Import(void *basePointer, size_t gnaGraphSize, std::istream
 
         // reading offsets of inputs/outputs
         readOffset(layer->pInputs, basePointer, is);
-        if (layer->nLayerKind != INTEL_COPY) {
+        if (layer->nLayerKind == INTEL_COPY) {
+            layer->pOutputsIntermediate = nullptr;
+        } else {
             readOffset(layer->pOutputsIntermediate, basePointer, is);
         }
         readOffset(layer->pOutputs, basePointer, is);
