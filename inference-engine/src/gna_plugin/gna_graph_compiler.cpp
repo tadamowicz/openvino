@@ -717,12 +717,12 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
                 std::swap(inputs4Bytes, inputs2Bytes);
                 biasesLayerIdx = 0;
             }
-            IE_ASSERT(inputs2Bytes->getPrecision().size() == 2);
-            IE_ASSERT(inputs4Bytes->getPrecision().size() == 4);
+            GNA_LAYER_ASSERT(layer, inputs2Bytes->getPrecision().size() == 2);
+            GNA_LAYER_ASSERT(layer, inputs4Bytes->getPrecision().size() == 4);
         } else {
             // for mul both inputs should be 2 bytes precision
-            IE_ASSERT(inputs2Bytes->getPrecision().size() == 2);
-            IE_ASSERT(inputs4Bytes->getPrecision().size() == 2);
+            GNA_LAYER_ASSERT(layer, inputs2Bytes->getPrecision().size() == 2);
+            GNA_LAYER_ASSERT(layer, inputs4Bytes->getPrecision().size() == 2);
         }
     }
 

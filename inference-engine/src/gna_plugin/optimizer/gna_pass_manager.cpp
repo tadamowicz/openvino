@@ -146,15 +146,16 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
         //          option 1 both inputs came from single outdata  - we will insert 1 identity  to just convert single input into 2 bytes
         //          option 2 each input came from it's own outdata - we need to insert 2 identities activations to convert both and feed weights and inputs
 
-        auto prev0 = CNNNetPrevLayer(l, 0);
-        auto prev1 = CNNNetPrevLayer(l, 1);
+        auto prev0 = PrevFunctionalLayer(l, 0);
+        auto prev1 = PrevFunctionalLayer(l, 1);
+
         switch (eltwise->_operation) {
             case EltwiseLayer::Sum:
                 if (!LayerInfo(prev0).has32BOutput() || !LayerInfo(prev1).has32BOutput()) {
                     return prevLayers;
                 }
                 // TODO: whether there are possibility to select after what layer identity gets inserted
-                prevLayers.push_back(prev0);
+                prevLayers.push_back(CNNNetPrevLayer(l, 0));
                 break;
             case EltwiseLayer::Prod: {
                 if (LayerInfo(prev0).has16BOutput() && LayerInfo(prev1).has16BOutput()) {
@@ -162,7 +163,7 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
                 }
 
                 if (LayerInfo(prev0).has32BOutput()) {
-                    prevLayers.push_back(prev0);
+                    prevLayers.push_back(CNNNetPrevLayer(l, 0));
                 }
 
                 // if layers of outdata are different
@@ -170,7 +171,7 @@ static std::vector<CNNLayerPtr> getCandidatesForIdentityInsertion(const CNNLayer
                 auto prevData1 = l->insData[1].lock();
 
                 if ((prev0 != prev1 || prevData0 != prevData1) && LayerInfo(prev1).has32BOutput()) {
-                        prevLayers.push_back(prev1);
+                        prevLayers.push_back(CNNNetPrevLayer(l, 1));
                 }
 
                 break;
