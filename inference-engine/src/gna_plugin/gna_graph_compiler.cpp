@@ -1575,7 +1575,7 @@ GNAPluginNS::ConnectionDetails GNAGraphCompiler::connectInput(CNNLayerPtr layer,
                                    num_data_bytes_in,
                                    64);
             } else {
-                gnamem->push_value(&inputDesc->get_ptr_inputs_global(prevLayer->name).front(),
+                gnamem->push_value(&inputDesc->getPtrInputsGlobal(prevLayer->name).front(),
                                    static_cast<uint8_t>(0),
                                    num_data_bytes_in,
                                    64);
@@ -1592,9 +1592,9 @@ GNAPluginNS::ConnectionDetails GNAGraphCompiler::connectInput(CNNLayerPtr layer,
         }
 
         if (offset >= 0) {
-            gnamem->bind_ptr(ptr, &inputDesc->get_ptr_inputs_global(prevLayer->name).front(), offset);
+            gnamem->bind_ptr(ptr, &inputDesc->getPtrInputsGlobal(prevLayer->name).front(), offset);
         } else {
-            gnamem->bind_ptr(&inputDesc->get_ptr_inputs_global(prevLayer->name).front(), ptr, -offset);
+            gnamem->bind_ptr(&inputDesc->getPtrInputsGlobal(prevLayer->name).front(), ptr, -offset);
         }
 
         return prevLayer;
