@@ -1210,7 +1210,8 @@ void GNAPlugin::SetConfig(const std::map<std::string, std::string> &config) {
 
     for (auto& item : config) {
         auto keys = std::find_if(supportedConfigOptions.begin(), supportedConfigOptions.end(), [&item](const std::string& supportedConfigOption) {
-            return item.first.find(supportedConfigOption) != std::string::npos;
+            return item.first == supportedConfigOption ||
+                   item.first.find(GNA_CONFIG_KEY(SCALE_FACTOR)) == 0;
         });
         if (keys == supportedConfigOptions.end()) {
             THROW_GNA_EXCEPTION << as_status << NOT_FOUND << "Incorrect GNA Plugin config. Key " << item.first << " not supported";
