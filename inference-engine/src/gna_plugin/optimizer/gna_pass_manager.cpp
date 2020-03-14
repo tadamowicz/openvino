@@ -348,7 +348,7 @@ void SubstituteSoftSignPass::run() {
         // rebind outdata of mull to be outdata of softsign
         for (auto && data : mulData) {
             data->getCreatorLayer() = activationLayerWithQuant;
-            data->setName("softsign_data_" + getPassManager()->getIntVar(softSignLayersCounter));
+            data->setName("softsign_data_" + std::to_string(getPassManager()->getIntVar(softSignLayersCounter)));
             activationLayerWithQuant->outData.push_back(data);
         }
 
