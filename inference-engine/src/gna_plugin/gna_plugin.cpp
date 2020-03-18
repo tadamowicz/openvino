@@ -421,6 +421,9 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
     auto sortedNet = CNNNetSortTopologicallyEx(*newNet, make_fuzed_order);
 
+    // passing policy to compiler
+    graphCompiler.setPolicy(policy);
+
     if (sortedNet.empty()) {
         THROW_GNA_EXCEPTION << "Sorted network is empty";
     }
@@ -534,9 +537,32 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
 
             gnalog() << "[UFS] from : "<< outPort.first <<" reached: " << layer->name << "\n";
 
+            // probing gna_primitives
             if (irLayerAvatar != graphCompiler.dnnComponents.components.end()) {
                 initOutput(portId, irLayerAvatar->second, layer);
                 stopSearching = true;
+            }
+
+            // probing concatInfo
+            if (!stopSearching && LayerInfo(layer).isConcat()) {
+                auto concatConnection  = graphCompiler.concat_connection.find(layer->name);
+                if (concatConnection != graphCompiler.concat_connection.end()) {
+                    //initOutput(portId, irLayerAvatar->second, layer);
+
+                    auto &desc = outputsDesc[portId];
+                    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+
+                    desc.ptrs.resize(gnaFlags->gna_lib_async_threads_num);
+                    // TODO: what is orientation for concat
+                    desc.orientation = kDnnInterleavedOrientation;
+                    desc.num_bytes_per_element = layer->outData.front()->getPrecision().size();
+                    desc.scale_factor = quantized != nullptr ? quantized->_dst_quant.scale : 1.0f;
+                    desc.num_elements = concatConnection->second.reserved_size / desc.num_bytes_per_element;
+
+                    // binding ptr for first infer request - then others will be setup during relocation
+                    gnamem->bind_ptr(&desc.ptrs.front(), &concatConnection->second.gna_ptr);
+                    stopSearching = true;
+                }
             }
         }, true, [&stopSearching](InferenceEngine::CNNLayer* from) {
             return make_upstream_order(!stopSearching ? from : nullptr);
