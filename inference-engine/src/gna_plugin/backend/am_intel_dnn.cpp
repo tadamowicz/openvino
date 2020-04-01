@@ -8,6 +8,7 @@
 #include <set>
 #include <string>
 #include <algorithm>
+#include <map>
 
 #if defined __INTEL_COMPILER || defined _MSC_VER
 #include <malloc.h>
