@@ -15,13 +15,13 @@ using namespace InferenceEngine::details;
 namespace GNAPluginNS {
 
 #if GNA_LIB_VER == 1
-static const caseless_unordered_map<std::string, uint32_t> supported_values = {
+static caseless_unordered_map<std::string, uint32_t> supported_values = {
         {GNAConfigParams::GNA_AUTO,     GNA_AUTO},
         {GNAConfigParams::GNA_HW,       GNA_HARDWARE},
         {GNAConfigParams::GNA_SW,       GNA_SOFTWARE},
         {GNAConfigParams::GNA_SW_EXACT, GNA_SOFTWARE & GNA_HARDWARE}
 };
-static const  std::vector<std::string> supported_values_on_gna2 = {
+static std::vector<std::string> supported_values_on_gna2 = {
         GNAConfigParams::GNA_GEN,
         GNAConfigParams::GNA_GEN_EXACT,
         GNAConfigParams::GNA_SSE,
@@ -32,7 +32,7 @@ static const  std::vector<std::string> supported_values_on_gna2 = {
         GNAConfigParams::GNA_AVX2_EXACT
 };
 #else
-static const caseless_unordered_map <std::string, std::pair<Gna2AccelerationMode, Gna2DeviceVersion>> supported_values = {
+static caseless_unordered_map <std::string, std::pair<Gna2AccelerationMode, Gna2DeviceVersion>> supported_values = {
                 {GNAConfigParams::GNA_AUTO,       {Gna2AccelerationModeAuto,     Gna2DeviceVersionSoftwareEmulation}},
                 {GNAConfigParams::GNA_HW,         {Gna2AccelerationModeHardware, Gna2DeviceVersionSoftwareEmulation}},
                 {GNAConfigParams::GNA_SW,         {Gna2AccelerationModeSoftware, Gna2DeviceVersionSoftwareEmulation}},
@@ -248,6 +248,8 @@ void Config::AdjustKeyMapValues() {
     key_config_map[CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)] =
             gnaFlags.exclusive_async_requests ? PluginConfigParams::YES: PluginConfigParams::NO;
     key_config_map[GNA_CONFIG_KEY(PRECISION)] = gnaPrecision.name();
+    key_config_map[CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)] =
+            gnaFlags.exclusive_async_requests ? PluginConfigParams::YES: PluginConfigParams::NO;
     key_config_map[GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN)] =
             gnaFlags.uniformPwlDesign ? PluginConfigParams::YES: PluginConfigParams::NO;
     key_config_map[CONFIG_KEY(PERF_COUNT)] =
