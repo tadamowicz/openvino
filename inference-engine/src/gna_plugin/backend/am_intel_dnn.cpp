@@ -1544,7 +1544,7 @@ void GNAPluginNS::backend::AMIntelDNN::InitGNAStruct(intel_nnet_type_t *ptr_nnet
                                 THROW_GNA_EXCEPTION << "CNN output NumberOfDimensions != 3";
                             }
                             if (outputTensor.Shape.Dimensions[0] * outputTensor.Shape.Dimensions[1] * outputTensor.Shape.Dimensions[2] !=
-                                comp.num_columns_out) {
+                                comp.num_columns_out * comp.num_rows_out) {
                                 THROW_GNA_EXCEPTION << "PWL after CNN output size mismatch";
                             }
                         }
