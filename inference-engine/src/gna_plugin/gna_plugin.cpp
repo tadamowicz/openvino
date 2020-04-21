@@ -1175,7 +1175,7 @@ InferenceEngine::IExecutableNetwork::Ptr GNAPlugin::ImportNetwork(const std::str
     DumpXNNToFile();
 
 #ifdef PLOT
-    dnn->WriteGraphWizModel("gna-blob.dot");
+    dnn->WriteGraphWizModel("gna-blob-imported.dot");
 #endif
 #if GNA_LIB_VER == 2
     createRequestConfigsForGnaModels();
