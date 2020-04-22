@@ -748,7 +748,7 @@ void GNAPlugin::createRequestConfigsForGnaModels() {
 
 int GetDeviceVersionFromString(const std::string deviceString) {
     constexpr uint32_t embeddedSuffix = 0xE;
-    if(deviceString.empty())
+    if (deviceString.empty())
         return 0x100 + embeddedSuffix;
     if (deviceString.size() == 4 && deviceString.substr(0, 3) == "GNA") {
         int version = deviceString[3] - '0';
