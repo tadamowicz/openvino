@@ -746,7 +746,9 @@ void GNAPlugin::createRequestConfigsForGnaModels() {
     }
 }
 
-int GetDeviceVersionFromString(const std::string deviceString) {
+#endif
+
+int GNAPlugin::GetDeviceVersionFromString(const std::string deviceString) {
     constexpr uint32_t embeddedSuffix = 0xE;
     if (deviceString.empty())
         return 0x100 + embeddedSuffix;
@@ -760,8 +762,6 @@ int GetDeviceVersionFromString(const std::string deviceString) {
     }
     THROW_GNA_EXCEPTION << "Wrong GNA generation for embedded model dump: " << deviceString;
 }
-
-#endif
 
 void GNAPlugin::DumpXNNToFile() const {
     // TODO: output  precision as well as pointer might be incorrect, LSTM for sure
