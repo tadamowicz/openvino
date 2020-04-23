@@ -527,15 +527,11 @@ void GNAPlugin::LoadNetwork(ICNNNetwork &network) {
         // Memory layers are not dnnComponents hence we need to make switch with identity layer
         if (outLayer->type == "Memory") {
             // traverse memory connection to find corresponding output_memory
-            for (auto memConnection : graphCompiler.memory_connection) {
+            for (auto && memConnection : graphCompiler.memory_connection) {
                 if (memConnection.second.getInput()->name == outLayer->name) {
-                    // if connection is found, replace outputLayer with identity layer corresponding to output memory layer
-                    auto memOutLayer = memConnection.second.getOutput();
-                    try {
-                        auto identity_layer = CNNNetPrevLayer(memOutLayer);
-                        outLayer = identity_layer;
-                    } catch (...) {
-                    }
+                    // if connection is found, replace memory input layer with memory output layer
+                    outLayer = memConnection.second.getOutput();
+                    break;
                 }
             }
         }
