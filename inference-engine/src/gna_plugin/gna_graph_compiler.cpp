@@ -602,15 +602,35 @@ void GNAGraphCompiler::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
     if (cropLayer == nullptr) {
         return;
     }
-    if (cropLayer->axis.size() > 1) {
+
+    IE_ASSERT(!layer->insData.empty());
+    auto inputs = layer->insData.begin()->lock();
+
+    IE_ASSERT(!cropLayer->axis.empty());
+    IE_ASSERT(cropLayer->axis.size() == cropLayer->dim.size());
+    IE_ASSERT(cropLayer->axis.size() == cropLayer->offset.size());
+
+    std::vector<int> axis, dim, offset;
+    for (int n = 0; n < cropLayer->axis.size(); n++) {
+        uint32_t input_dim = FROM_IR_DIM(inputs, inputs->getDims().size() - cropLayer->axis[n]);
+        // Exclude crop layer components that do nothing
+        if (cropLayer->offset[n] == 0 && cropLayer->dim[n] == input_dim) {
+            continue;
+        }
+        axis.push_back(cropLayer->axis[n]);
+        dim.push_back(cropLayer->dim[n]);
+        offset.push_back(cropLayer->offset[n]);
+    }
+
+    if (axis.size() > 1) {
         THROW_GNA_EXCEPTION <<
-            "Crop layer does not support the number of cropped dimensions = "
-            << cropLayer->axis.size() << ".";
+            "Crop layer does not support the number of (non-trivial) cropped dimensions more than 1, provided: "
+            << axis.size() << ".";
     }
 
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
-    size_t cropOffset = cropLayer->offset.back() * cropLayer->precision.size();
-    size_t cropOutputSize = cropLayer->dim.back() * cropLayer->precision.size();
+    size_t cropOffset = offset.front() * cropLayer->precision.size();
+    size_t cropOutputSize = dim.front() * cropLayer->precision.size();
 
     if (ALIGN64(cropOffset) == cropOffset) {
         // leave crop as it is
@@ -637,20 +657,18 @@ void GNAGraphCompiler::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
     } else {
         gnalog() << "Crop " << layer->name << " is being replaced by Affine layer...\n";
         IE_ASSERT(!layer->outData.empty());
-        IE_ASSERT(!layer->insData.empty());
         auto outputs = *layer->outData.begin();
-        auto inputs = layer->insData.begin()->lock();
 
         // only 1D crops supported
-        if (cropLayer->axis.size() != 1) {
+        if (axis.size() != 1) {
             THROW_GNA_EXCEPTION << "only 1D crop layer supported: " << cropLayer->name;
         }
 
         // TODO: add unit tests for 4d crops blobs
-        uint32_t num_rows_in = FROM_IR_DIM(inputs, inputs->getDims().size() - cropLayer->axis[0]);
+        uint32_t num_rows_in = FROM_IR_DIM(inputs, inputs->getDims().size() - axis.front());
         uint32_t num_columns_in = 1;
 
-        uint32_t num_rows_out = FROM_IR_DIM(outputs, inputs->getDims().size() - cropLayer->axis[0]);
+        uint32_t num_rows_out = FROM_IR_DIM(outputs, inputs->getDims().size() - axis.front());
         uint32_t num_padding = ALIGN(num_rows_in, 8) - num_rows_in;
 
         void* ptr_inputs = nullptr;
@@ -686,7 +704,7 @@ void GNAGraphCompiler::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
         connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 0);
         connectOutput(layer, ptr_outputs, num_data_bytes_out);
 
-        FillWeightOfAligningFilter(layer, ptr_weights, cropLayer->offset.back(), (quantized == nullptr) ? false : true);
+        FillWeightOfAligningFilter(layer, ptr_weights, offset.front(), (quantized == nullptr) ? false : true);
 
         (quantized == nullptr) ?
             gnamem->readonly().push_value(ptr_biases, 0.0f, num_rows_out, 64) :
