@@ -215,7 +215,14 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             }
 
             auto abs_val = std::max(std::abs(max_val), std::abs(min_val));
-            quant->_dst_quant.scale = static_cast<float>(std::numeric_limits<int16_t>::max()) / abs_val;
+            auto scale_val = static_cast<float>(std::numeric_limits<int16_t>::max()) / abs_val;
+
+            // TODO: Investigate what should be the scale in such cases (CVS-31910)
+            if (std::isinf(scale_val)) {
+                quant->_dst_quant.scale = quant->_src_quant.scale;
+            } else {
+                quant->_dst_quant.scale = scale_val;
+            }
 
             return ScaleFactorUpdateResult();
         }
