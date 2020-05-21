@@ -185,17 +185,16 @@ void  GNAGraphCompiler::ConstPrimitive(InferenceEngine::CNNLayerPtr constLayer) 
     if (constLayer->blobs.find("custom") == constLayer->blobs.end()) {
         THROW_GNA_EXCEPTION << "const layer: " << constLayer->name << "doesn't have custom in blobs section";
     }
-    auto constBlob = constLayer->blobs["custom"];
+    auto const_blob = constLayer->blobs["custom"];
 
-    void* ptr_for_const_blob = &ptr_for_const_blob;
-    connectOutput(constLayer, ptr_for_const_blob, constBlob->size());
+    const_connections[constLayer->name] = &const_connections[constLayer->name];
+    void* ptr_for_const_blob = &const_connections[constLayer->name];
 
-    const_connections[constLayer->name] = ptr_for_const_blob;
-
+    connectOutput(constLayer, ptr_for_const_blob, const_blob->byteSize());
     // TODO: segment type for bind, bind initializer not used - need refactor to separate bind and allocation requests
     // dont see practical use case when bind storage type need to be different that allocation type
-    gnamem->readonly().bind_initializer(ptr_for_const_blob, [constBlob](void* data, size_t size) {
-        ie_memcpy(data, size, constBlob->buffer(), constBlob->byteSize());
+    gnamem->readonly().bind_initializer(ptr_for_const_blob, [const_blob](void* data, size_t size) {
+        ie_memcpy(data, size, const_blob->buffer(), const_blob->byteSize());
         });
 }
 
@@ -731,17 +730,27 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     int biasesLayerIdx = 1;
 
     if (quantized) {
-        if (eltwise._operation == EltwiseLayer::Sum) {
+        switch (eltwise._operation) {
+        case InferenceEngine::EltwiseLayer::Sum:
+        case InferenceEngine::EltwiseLayer::Sub:
+        {
             if (inputs4Bytes->getPrecision().size() != 4) {
                 std::swap(inputs4Bytes, inputs2Bytes);
                 biasesLayerIdx = 0;
             }
             GNA_LAYER_ASSERT(layer, inputs2Bytes->getPrecision().size() == 2);
             GNA_LAYER_ASSERT(layer, inputs4Bytes->getPrecision().size() == 4);
-        } else {
+            break;
+        }
+        case InferenceEngine::EltwiseLayer::Prod:
+        {
             // for mul both inputs should be 2 bytes precision
             GNA_LAYER_ASSERT(layer, inputs2Bytes->getPrecision().size() == 2);
             GNA_LAYER_ASSERT(layer, inputs4Bytes->getPrecision().size() == 2);
+            break;
+        }
+        default:
+            THROW_GNA_EXCEPTION << "Unsupported eltwise operation for quantization: " << eltwise._operation;
         }
     }
 
@@ -785,6 +794,18 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 1 - biasesLayerIdx);
 
     switch (eltwise._operation) {
+    case EltwiseLayer::Sub:
+        if (quantized == nullptr) {
+            gnamem->readonly().push_value(ptr_weights, -1.0f, num_rows_out, 64);
+        } else {
+            auto scaledIdentity = -quantized->_weights_quant.scale;
+
+            auto quantizedIdentity = FLOAT_TO_INT16(std::min(scaledIdentity, static_cast<float>(INT16_MAX)));
+
+            gnamem->readonly().push_value<int16_t>(ptr_weights, quantizedIdentity, num_rows_out, 64);
+        }
+        connectInput(layer, ptr_biases, num_data_bytes_in, 0, biasesLayerIdx);
+        break;
     case EltwiseLayer::Sum:
         if (quantized == nullptr) {
             gnamem->readonly().push_value(ptr_weights, 1.0f, num_rows_out, 64);
