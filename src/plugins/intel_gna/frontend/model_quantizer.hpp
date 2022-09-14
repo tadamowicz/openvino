@@ -19,6 +19,8 @@
 #include "gna_itt.hpp"
 #include "descriptions/gna_desc.hpp"
 
+#define gnalog() std::cout
+
 namespace GNAPluginNS {
 
 /**
@@ -115,6 +117,7 @@ class ModelQuantizer {
     void propagateScaleFactor(std::vector<InferenceEngine::CNNLayerPtr> & net) const {
         ScaleFactorCalculator<T> sf(net);
 
+        gnalog() << "test log:\n";
         int infiniteLoopCount = 0;
         std::vector<std::string> infiniteLoopPattern;
         std::vector<std::string> infiniteLoopHistory;
@@ -172,6 +175,9 @@ class ModelQuantizer {
                     }
                     gnalog() << "infiniteLoopHistory:\n";
                     for (const auto& s : infiniteLoopHistory) {
+                        if (s == "link_104#3622") {
+                            gnalog() << "\t " << s << '\n';
+                        }
                         gnalog() << "\t " << s << '\n';
                     }
                     infiniteLoopHistory.clear();
@@ -184,11 +190,18 @@ class ModelQuantizer {
 
             if (infiniteLoopHistory.empty()) {
                 infiniteLoopCount++;
+                gnalog() << "infiniteLoopHistory.empty()\n";
             } else {
-                if (infiniteLoopCount > 0 &&
-                    (infiniteLoopHistory.size()%infiniteLoopPattern.size() == 0 || sf.allLayersProcessed()) &&
-                    !std::equal(infiniteLoopHistory.begin() + (infiniteLoopHistory.size() - infiniteLoopPattern.size()),
-                        infiniteLoopHistory.end(), infiniteLoopPattern.begin())) {
+                //gnalog() << "infiniteLoopCount:" << infiniteLoopCount  << "\n";
+                //gnalog() << "infiniteLoopHistory.size:" << infiniteLoopHistory.size() << "\n";
+                //gnalog() << "infiniteLoopPattern.size:" << infiniteLoopPattern.size() << "\n ";
+                //gnalog() << "std::equal()\n"   << infiniteLoopHistory.begin() + (infiniteLoopHistory.size() - infiniteLoopPattern.size()) << "\n ";
+                //gnalog() << "infiniteLoopPattern.begin():" << infiniteLoopPattern.begin() << "\n ";
+                
+                if (infiniteLoopCount > 0 
+                    && (infiniteLoopHistory.size()%infiniteLoopPattern.size() == 0 || sf.allLayersProcessed()) 
+                    && !std::equal(infiniteLoopHistory.begin() + (infiniteLoopHistory.size() - infiniteLoopPattern.size()), infiniteLoopHistory.end(), infiniteLoopPattern.begin()
+                    )) {
                     infiniteLoopCount = 0;
                     infiniteLoopPattern.clear();
                     gnalog() << "infinite loop fixed\n";

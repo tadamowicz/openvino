@@ -36,6 +36,41 @@ using namespace ov::preprocess;
  * @file speech_sample/main.cpp
  * @example speech_sample/main.cpp
  */
+std::pair<std::string, std::vector<std::string>> parse_inputs_parameters() {
+    const std::string file_paths_string =
+        "in1=C:/projects/ark1.ark,in2=C:/projects/ark1.ark,h1_enc1_l1=C:/projects/ark1.ark,h1_enc1_l2=C:/projects/"
+        "ark1.ark,h1_enc1_l3=C:/projects/ark1.ark,h1_enc1_l4=C:/projects/ark1.ark,h1_enc1_l5=C:/projects/"
+        "ark1.ark,h1_enc1_l6=C:/projects/ark1.ark,h2_enc1_l1=C:/projects/ark1.ark,h2_enc1_l2=C:/projects/"
+        "ark1.ark,h2_enc1_l3=C:/projects/ark1.ark,h2_enc1_l4=C:/projects/ark1.ark,h2_enc1_l5=C:/projects/"
+        "ark1.ark,h2_enc1_l6=C:/projects/ark1.ark,h1_enc2_l1=C:/projects/ark1.ark,h1_enc2_l2=C:/projects/"
+        "ark1.ark,h1_enc2_l3=C:/projects/ark1.ark,h1_enc2_l4=C:/projects/ark1.ark,h1_enc2_l5=C:/projects/"
+        "ark1.ark,h1_enc2_l6=C:/projects/ark1.ark,h2_enc2_l1=C:/projects/ark1.ark,h2_enc2_l2=C:/projects/"
+        "ark1.ark,h2_enc2_l3=C:/projects/ark1.ark,h2_enc2_l4=C:/projects/ark1.ark,h2_enc2_l5=C:/projects/"
+        "ark1.ark,h2_enc2_l6=C:/projects/ark1.ark,h0_lstm1_g1=C:/projects/ark1.ark,h0_lstm1_g2=C:/projects/"
+        "ark1.ark,h0_lstm2_g1=C:/projects/ark1.ark,h0_lstm2_g2=C:/projects/ark1.ark,c0_lstm1_g1=C:/projects/"
+        "ark1.ark,c0_lstm1_g2=C:/projects/ark1.ark,c0_lstm2_g1=C:/projects/ark1.ark,c0_lstm2_g2=C:/projects/"
+        "ark1.ark,h1_dec1_l1=C:/projects/ark1.ark,h1_dec1_l2=C:/projects/ark1.ark,h1_dec1_l3=C:/projects/"
+        "ark1.ark,h1_dec1_l4=C:/projects/ark1.ark,h1_dec1_l5=C:/projects/ark1.ark,h1_dec1_l6=C:/projects/"
+        "ark1.ark,h2_dec1_l1=C:/projects/ark1.ark,h2_dec1_l2=C:/projects/ark1.ark,h2_dec1_l3=C:/projects/"
+        "ark1.ark,h2_dec1_l4=C:/projects/ark1.ark,h2_dec1_l5=C:/projects/ark1.ark,h2_dec1_l6=C:/projects/"
+        "ark1.ark,h1_dec2_l1=C:/projects/ark1.ark,h1_dec2_l2=C:/projects/ark1.ark,h1_dec2_l3=C:/projects/"
+        "ark1.ark,h1_dec2_l4=C:/projects/ark1.ark,h1_dec2_l5=C:/projects/ark1.ark,h1_dec2_l6=C:/projects/"
+        "ark1.ark,h2_dec2_l1=C:/projects/ark1.ark,h2_dec2_l2=C:/projects/ark1.ark,h2_dec2_l3=C:/projects/"
+        "ark1.ark,h2_dec2_l4=C:/projects/ark1.ark,h2_dec2_l5=C:/projects/ark1.ark,h2_dec2_l6=C:/projects/"
+        "ark1.ark,skip_h1_dec1_l1=C:/projects/ark1.ark,skip_h1_dec1_l2=C:/projects/ark1.ark,skip_h1_dec1_l3=C:/"
+        "projects/ark1.ark,skip_h1_dec1_l4=C:/projects/ark1.ark,skip_h1_dec1_l5=C:/projects/"
+        "ark1.ark,skip_h1_dec1_l6=C:/projects/ark1.ark,skip_h2_dec1_l1=C:/projects/ark1.ark,skip_h2_dec1_l2=C:/"
+        "projects/ark1.ark,skip_h2_dec1_l3=C:/projects/ark1.ark,skip_h2_dec1_l4=C:/projects/"
+        "ark1.ark,skip_h2_dec1_l5=C:/projects/ark1.ark,skip_h2_dec1_l6=C:/projects/ark1.ark,skip_h1_dec2_l1=C:/"
+        "projects/ark1.ark,skip_h1_dec2_l2=C:/projects/ark1.ark,skip_h1_dec2_l3=C:/projects/"
+        "ark1.ark,skip_h1_dec2_l4=C:/projects/ark1.ark,skip_h1_dec2_l5=C:/projects/ark1.ark,skip_h1_dec2_l6=C:/"
+        "projects/ark1.ark,skip_h2_dec2_l1=C:/projects/ark1.ark,skip_h2_dec2_l2=C:/projects/"
+        "ark1.ark,skip_h2_dec2_l3=C:/projects/ark1.ark,skip_h2_dec2_l4=C:/projects/ark1.ark,skip_h2_dec2_l5=C:/"
+        "projects/ark1.ark,skip_h2_dec2_l6=C:/projects/ark1.ark";
+    return parse_parameters(file_paths_string);
+}
+
+
 int main(int argc, char* argv[]) {
     try {
         // ------------------------------ Get OpenVINO Runtime version ----------------------------------------------
@@ -51,7 +86,7 @@ int main(int argc, char* argv[]) {
         NumpyFile numpyFile;
         std::pair<std::string, std::vector<std::string>> input_data;
         if (!FLAGS_i.empty())
-            input_data = parse_parameters(FLAGS_i);
+            input_data = parse_inputs_parameters();
         auto extInputFile = fileExt(input_data.first);
         if (extInputFile == "ark") {
             file = &arkFile;
@@ -213,6 +248,7 @@ int main(int argc, char* argv[]) {
             }
         } else {
             // "static" quantization with calculated scale factor
+
             if (!FLAGS_rg.empty()) {
                 slog::info << "Using scale factor from provided imported gna model: " << FLAGS_rg << slog::endl;
             } else {

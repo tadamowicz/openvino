@@ -49,6 +49,8 @@ struct InferRequestStruct {
  * @return none.
  */
 void check_number_of_inputs(size_t numInputs, size_t numInputFiles) {
+    return;
+
     if (numInputs != numInputFiles) {
         throw std::logic_error("Number of network inputs (" + std::to_string(numInputs) +
                                ")"
@@ -466,8 +468,39 @@ std::map<std::string, float> parse_scale_factors(const ov::OutputVector& inputs,
         }
         return sf;
     };
+
+    //const std::string& values_string1 =
+    //    "in1=1.0,in2=1.0,h1_enc1_l1=1.0,h1_enc1_l2=1.0,h1_enc1_l3=1.0,h1_enc1_l4=1.0,h1_enc1_l5=1.0,h1_enc1_l6=1.0,h2_"
+    //    "enc1_l1=1.0,h2_enc1_l2=1.0,h2_enc1_l3=1.0,h2_enc1_l4=1.0,h2_enc1_l5=1.0,h2_enc1_l6=1.0,h1_enc2_l1=1.0,h1_enc2_"
+    //    "l2=1.0,h1_enc2_l3=1.0,h1_enc2_l4=1.0,h1_enc2_l5=1.0,h1_enc2_l6=1.0,h2_enc2_l1=1.0,h2_enc2_l2=1.0,h2_enc2_l3=1."
+    //    "0,h2_enc2_l4=1.0,h2_enc2_l5=1.0,h2_enc2_l6=1.0,h0_lstm1_g1=1.0,h0_lstm1_g2=1.0,h0_lstm2_g1=1.0,h0_lstm2_g2=1."
+    //    "0,c0_lstm1_g1=1.0,c0_lstm1_g2=1.0,c0_lstm2_g1=1.0,c0_lstm2_g2=1.0,h1_dec1_l1=1.0,h1_dec1_l2=1.0,h1_dec1_l3=1."
+    //    "0,h1_dec1_l4=1.0,h1_dec1_l5=1.0,h1_dec1_l6=1.0,h2_dec1_l1=1.0,h2_dec1_l2=1.0,h2_dec1_l3=1.0,h2_dec1_l4=1.0,h2_"
+    //    "dec1_l5=1.0,h2_dec1_l6=1.0,h1_dec2_l1=1.0,h1_dec2_l2=1.0,h1_dec2_l3=1.0,h1_dec2_l4=1.0,h1_dec2_l5=1.0,h1_dec2_"
+    //    "l6=1.0,h2_dec2_l1=1.0,h2_dec2_l2=1.0,h2_dec2_l3=1.0,h2_dec2_l4=1.0,h2_dec2_l5=1.0,h2_dec2_l6=1.0,skip_h1_dec1_"
+    //    "l1=1.0,skip_h1_dec1_l2=1.0,skip_h1_dec1_l3=1.0,skip_h1_dec1_l4=1.0,skip_h1_dec1_l5=1.0,skip_h1_dec1_l6=1.0,"
+    //    "skip_h2_dec1_l1=1.0,skip_h2_dec1_l2=1.0,skip_h2_dec1_l3=1.0,skip_h2_dec1_l4=1.0,skip_h2_dec1_l5=1.0,skip_h2_"
+    //    "dec1_l6=1.0,skip_h1_dec2_l1=1.0,skip_h1_dec2_l2=1.0,skip_h1_dec2_l3=1.0,skip_h1_dec2_l4=1.0,skip_h1_dec2_l5=1."
+    //    "0,skip_h1_dec2_l6=1.0,skip_h2_dec2_l1=1.0,skip_h2_dec2_l2=1.0,skip_h2_dec2_l3=1.0,skip_h2_dec2_l4=1.0,skip_h2_"
+    //    "dec2_l5=1.0,skip_h2_dec2_l6=1.0";
+
+    const std::string& values_string1 =
+        "in1=2.0,in2=2.0,h1_enc1_l1=2.0,h1_enc1_l2=2.0,h1_enc1_l3=2.0,h1_enc1_l4=2.0,h1_enc1_l5=2.0,h1_enc1_l6=2.0,h2_"
+        "enc1_l1=2.0,h2_enc1_l2=2.0,h2_enc1_l3=2.0,h2_enc1_l4=2.0,h2_enc1_l5=2.0,h2_enc1_l6=2.0,h1_enc2_l1=2.0,h1_enc2_"
+        "l2=2.0,h1_enc2_l3=2.0,h1_enc2_l4=2.0,h1_enc2_l5=2.0,h1_enc2_l6=2.0,h2_enc2_l1=2.0,h2_enc2_l2=2.0,h2_enc2_l3=2."
+        "0,h2_enc2_l4=2.0,h2_enc2_l5=2.0,h2_enc2_l6=2.0,h0_lstm1_g1=2.0,h0_lstm1_g2=2.0,h0_lstm2_g1=2.0,h0_lstm2_g2=2."
+        "0,c0_lstm1_g1=2.0,c0_lstm1_g2=2.0,c0_lstm2_g1=2.0,c0_lstm2_g2=2.0,h1_dec1_l1=2.0,h1_dec1_l2=2.0,h1_dec1_l3=2."
+        "0,h1_dec1_l4=2.0,h1_dec1_l5=2.0,h1_dec1_l6=2.0,h2_dec1_l1=2.0,h2_dec1_l2=2.0,h2_dec1_l3=2.0,h2_dec1_l4=2.0,h2_"
+        "dec1_l5=2.0,h2_dec1_l6=2.0,h1_dec2_l1=2.0,h1_dec2_l2=2.0,h1_dec2_l3=2.0,h1_dec2_l4=2.0,h1_dec2_l5=2.0,h1_dec2_"
+        "l6=2.0,h2_dec2_l1=2.0,h2_dec2_l2=2.0,h2_dec2_l3=2.0,h2_dec2_l4=2.0,h2_dec2_l5=2.0,h2_dec2_l6=2.0,skip_h1_dec1_"
+        "l1=2.0,skip_h1_dec1_l2=2.0,skip_h1_dec1_l3=2.0,skip_h1_dec1_l4=2.0,skip_h1_dec1_l5=2.0,skip_h1_dec1_l6=2.0,"
+        "skip_h2_dec1_l1=2.0,skip_h2_dec1_l2=2.0,skip_h2_dec1_l3=2.0,skip_h2_dec1_l4=2.0,skip_h2_dec1_l5=2.0,skip_h2_"
+        "dec1_l6=2.0,skip_h1_dec2_l1=2.0,skip_h1_dec2_l2=2.0,skip_h1_dec2_l3=2.0,skip_h1_dec2_l4=2.0,skip_h1_dec2_l5=2."
+        "0,skip_h1_dec2_l6=2.0,skip_h2_dec2_l1=2.0,skip_h2_dec2_l2=2.0,skip_h2_dec2_l3=2.0,skip_h2_dec2_l4=2.0,skip_h2_"
+        "dec2_l5=2.0,skip_h2_dec2_l6=2.0";
+
     std::map<std::string, float> result;
-    auto scale_factor_strings = split(values_string, ',');
+    auto scale_factor_strings = split(values_string1, ',');
     for (auto& scale_factor_string : scale_factor_strings) {
         auto values = split(scale_factor_string, '=');
         if (values.size() == 1) {
