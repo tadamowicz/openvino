@@ -18,6 +18,8 @@ bool isMappableFrom2DTo1D(const uint32_t inHeight, const uint32_t inWidth, const
 bool isConv2D(const uint32_t inHeight, const uint32_t inWidth, const uint32_t inDepth,
     const uint32_t kernelHeight, const uint32_t kernelWidth);
 
+bool isConv2D(InferenceEngine::CNNLayerPtr layer);
+
 double getWeightsReducer(InferenceEngine::ConvolutionLayer& conv);
 
 uint32_t outputFromConv(const uint32_t in, const uint32_t flt, const uint32_t stride);

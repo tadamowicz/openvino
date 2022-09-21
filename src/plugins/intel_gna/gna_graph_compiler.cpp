@@ -2068,12 +2068,17 @@ case name:\
                 output_pwl_scale_factor,
                 gnaFlags->input_low_precision);
         } else {
+            auto is_fused_with_conv_2d = false;
+            if (LayerInfo(prevLayer).isConvolution()) {
+                is_fused_with_conv_2d = GNAConvolutionLayer::isConv2D(prevLayer);
+            }
             PwlDesignOpt(activation_type,
-                ptr_pwl_segments,
-                input_pwl_scale_factor,
-                output_pwl_scale_factor,
-                gnaFlags->input_low_precision,
-                layer->getNode());
+                         input_pwl_scale_factor,
+                         output_pwl_scale_factor,
+                         gnaFlags->input_low_precision,
+                         layer->getNode(),
+                         is_fused_with_conv_2d,
+                         ptr_pwl_segments);
         }
         ptr_pwl_segments_target = reinterpret_cast<gna_pwl_segment_t*>(&ptr_pwl_segments_target);
     }

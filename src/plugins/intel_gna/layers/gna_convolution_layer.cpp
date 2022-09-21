@@ -31,6 +31,15 @@ bool isConv2D(const uint32_t inHeight, const uint32_t inWidth, const uint32_t in
     return (kernelHeight > 1 && kernelWidth > 1) || (inHeight > 1 && inWidth > 1 && inDepth > 1);
 }
 
+bool isConv2D(InferenceEngine::CNNLayerPtr layer) {
+    auto& convolution = dynamic_cast<InferenceEngine::ConvolutionLayer&>(*layer.get());
+    const auto inputs = layer->insData.front().lock();
+    const auto in_channels = GetDataDimSize(inputs, InferenceEngine::DataDimName::C);
+    auto in_height = GetDataDimSize(inputs, InferenceEngine::DataDimName::H);
+    auto in_width = GetDataDimSize(inputs, InferenceEngine::DataDimName::W);
+    return isConv2D(in_height, in_width, in_channels, convolution._kernel_y, convolution._kernel_x);
+}
+
 double getWeightsReducer(InferenceEngine::ConvolutionLayer& conv) {
     using KRT = std::pair<uint32_t, double>;
     // Empirically determined weights reducers for 2D Convolution
