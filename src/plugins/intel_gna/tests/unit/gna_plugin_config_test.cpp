@@ -197,6 +197,9 @@ TEST_F(GNAPluginConfigTest, GnaConfigGnaExecTargetTest) {
     SetAndCompare(GNA_CONFIG_KEY(EXEC_TARGET), "GNA_TARGET_3_5");
     EXPECT_EQ(config.gnaExecTarget, "GNA_TARGET_3_5");
 
+    SetAndCompare(GNA_CONFIG_KEY(EXEC_TARGET), "GNA_TARGET_3_6");
+    EXPECT_EQ(config.gnaExecTarget, "GNA_TARGET_3_6");
+
     ExpectThrow(GNA_CONFIG_KEY(EXEC_TARGET), "0");
     ExpectThrow(GNA_CONFIG_KEY(EXEC_TARGET), "GNA_TARGET_1_5");
     ExpectThrow(GNA_CONFIG_KEY(EXEC_TARGET), "GNA_TARGET");
@@ -212,6 +215,9 @@ TEST_F(GNAPluginConfigTest, GnaConfigGnaCompileTargetTest) {
 
     SetAndCompare(GNA_CONFIG_KEY(COMPILE_TARGET), "GNA_TARGET_3_5");
     EXPECT_EQ(config.gnaCompileTarget, "GNA_TARGET_3_5");
+
+    SetAndCompare(GNA_CONFIG_KEY(EXEC_TARGET), "GNA_TARGET_3_6");
+    EXPECT_EQ(config.gnaExecTarget, "GNA_TARGET_3_6");
 
     ExpectThrow(GNA_CONFIG_KEY(COMPILE_TARGET), "0");
     ExpectThrow(GNA_CONFIG_KEY(COMPILE_TARGET), "GNA_TARGET_1_5");
