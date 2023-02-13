@@ -47,6 +47,7 @@ class GNADeviceHelper : public GNADevice {
     uint32_t nGnaDeviceIndex = 0;
     bool useDeviceEmbeddedExport = false;
     uint32_t maxLayersCount_ = 0;
+    size_t memAlignment = 0;
 
     static const uint32_t TotalGna2InstrumentationPoints = 2;
     Gna2InstrumentationPoint gna2InstrumentationPoints[TotalGna2InstrumentationPoints] = {
@@ -127,6 +128,11 @@ public:
         return allAllocations;
     }
 
+    const size_t getMemAlignment() const {
+        IE_ASSERT(memAlignment);
+        return memAlignment;
+    }
+
     /**
      * @see GNADevice::createModel()
      */
@@ -184,6 +190,7 @@ private:
                                                             &instrumentationConfigId);
         checkGna2Status(status, "Gna2InstrumentationConfigCreate");
     }
+    size_t getGnaMemAlignmentFromTarget(const std::string target);
 };  // NOLINT
 
 }  // namespace intel_gna

@@ -48,6 +48,8 @@ GNADeviceHelper::GNADeviceHelper(std::shared_ptr<Target> targetIn, bool isPerfor
     GetGnaLibraryVersion();
 
     maxLayersCount_ = retrieveMaxLayersCount();
+
+    memAlignment = getGnaMemAlignmentFromTarget(compileTargetIn);
 }
 
 GNADeviceHelper::~GNADeviceHelper() {
@@ -579,5 +581,18 @@ uint32_t GNADeviceHelper::retrieveMaxLayersCount() {
     }
 }
 
+size_t GNADeviceHelper::getGnaMemAlignmentFromTarget(const std::string target) {
+    static const std::map<const std::string, uint32_t> m = {{common::kGnaTargetUnspecified, 64},
+                                                            {common::kGnaTarget2_0, 64},
+                                                            {common::kGnaTarget3_0, 64},
+                                                            {common::kGnaTarget3_1, 64},
+                                                            {common::kGnaTarget3_5, 64}};
+    const auto r = m.find(target);
+    if (r == m.end()) {
+        THROW_GNA_EXCEPTION << "Memory alignment for the specified compilation target (" << target
+                            << ") cannot be defined";
+    }
+    return r->second;
+}
 }  // namespace intel_gna
 }  // namespace ov
