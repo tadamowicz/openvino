@@ -1372,10 +1372,8 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     }
 
     // If batch size > 1 the data is reshaped to one with batch size = 1
-    uint32_t num_rows_in = in_4b_total_size;
-    uint32_t num_columns_in = 1;
-    uint32_t num_rows_out = num_rows_in;
-    uint32_t num_padding = ALIGN(num_rows_in, noOfInputsDivisor) - num_rows_in;
+    uint32_t num_columns = 1;
+    uint32_t num_rows = ALIGN(in_4b_total_size, noOfInputsDivisor);
 
     void* ptr_inputs = nullptr;
     void* ptr_outputs = nullptr;
@@ -1383,11 +1381,10 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
     void* ptr_biases = nullptr;
 
     auto& currentComponent = dnnComponents.addComponent(layer->name, "diagonal");
-    dnn->InitAffineComponent(
-        currentComponent,
-        num_rows_in + num_padding,
-        num_columns_in,
-        num_rows_out + num_padding,
+    dnn->InitAffineComponent(currentComponent,
+        num_rows,
+        num_columns,
+        num_rows,
         inputs2Bytes->getPrecision().size(),
         outputs->getPrecision().size(),
         // TODO: only fp32 and Int16 tested
@@ -1400,62 +1397,60 @@ void GNAGraphCompiler::EltwisePrimitive(InferenceEngine::CNNLayerPtr layer) {
         ptr_weights,
         ptr_biases,
         true);
-    size_t num_data_bytes_out = InferenceEngine::details::product(begin(outputs->getDims()), end(outputs->getDims())) *
-                                outputs->getPrecision().size();
 
-    size_t num_data_bytes_in = num_columns_in * (num_rows_in + num_padding) * inputs2Bytes->getPrecision().size();
+    size_t num_data_bytes = num_columns * num_rows * inputs2Bytes->getPrecision().size();
 
-    connectOutput(layer, ptr_outputs, num_data_bytes_out);
-    connectInput(layer, ptr_inputs, num_data_bytes_in, 0, 1 - biasesLayerIdx);
+    connectOutput(layer, ptr_outputs, num_data_bytes);
+    connectInput(layer, ptr_inputs, num_data_bytes, 0, 1 - biasesLayerIdx);
 
     switch (eltwise._operation) {
     case EltwiseLayer::Sub:
         if (quantized == nullptr) {
-            gnamem->getQueue(REGION_RO)->push_value(layer, ptr_weights, -1.0f, num_rows_out);
+            gnamem->getQueue(REGION_RO)->push_value(layer, ptr_weights, -1.0f, num_rows);
         } else {
             auto scaledIdentity = -quantized->_weights_quant.GetScale();
 
             if (gna_config.gnaFlags.input_low_precision == false) {
                 auto quantizedIdentity = FloatToInt16(std::min(scaledIdentity, static_cast<float>(INT16_MAX)));
-                gnamem->getQueue(REGION_RO)->push_value<int16_t>(layer, ptr_weights, quantizedIdentity, num_rows_out);
+                gnamem->getQueue(REGION_RO)->push_value<int16_t>(layer, ptr_weights, quantizedIdentity, num_rows);
             } else {
                 auto quantizedIdentity = FloatToInt8(std::min(scaledIdentity, static_cast<float>(INT8_MAX)));
 
-                gnamem->getQueue(REGION_RO)->push_value<int8_t>(layer, ptr_weights, quantizedIdentity, num_rows_out);
+                gnamem->getQueue(REGION_RO)->push_value<int8_t>(layer, ptr_weights, quantizedIdentity, num_rows);
             }
         }
-        connectInput(layer, ptr_biases, num_data_bytes_in, 0, biasesLayerIdx);
+        connectInput(layer, ptr_biases, num_data_bytes, 0, biasesLayerIdx);
         break;
     case EltwiseLayer::Sum:
         if (quantized == nullptr) {
-            gnamem->getQueue(REGION_RO)->push_value(layer, ptr_weights, 1.0f, num_rows_out);
+            gnamem->getQueue(REGION_RO)->push_value(layer, ptr_weights, 1.0f, num_rows);
         } else {
             auto scaledIdentity = quantized->_weights_quant.GetScale();
 
             if (gna_config.gnaFlags.input_low_precision == false) {
                 auto quantizedIdentity = FloatToInt16(std::min(scaledIdentity, static_cast<float>(INT16_MAX)));
 
-                gnamem->getQueue(REGION_RO)->push_value<int16_t>(layer, ptr_weights, quantizedIdentity, num_rows_out);
+                gnamem->getQueue(REGION_RO)->push_value<int16_t>(layer, ptr_weights, quantizedIdentity, num_rows);
             } else {
                 auto quantizedIdentity = FloatToInt8(std::min(scaledIdentity, static_cast<float>(INT8_MAX)));
 
-                gnamem->getQueue(REGION_RO)->push_value<int8_t>(layer, ptr_weights, quantizedIdentity, num_rows_out);
+                gnamem->getQueue(REGION_RO)->push_value<int8_t>(layer, ptr_weights, quantizedIdentity, num_rows);
             }
         }
-        connectInput(layer, ptr_biases, num_data_bytes_in, 0, biasesLayerIdx);
+        connectInput(layer, ptr_biases, num_data_bytes, 0, biasesLayerIdx);
         break;
 
     case EltwiseLayer::Prod:
         if (quantized == nullptr) {
-            gnamem->getQueue(REGION_RO)->push_value(layer, ptr_biases, 0.0f, num_rows_out);
+            gnamem->getQueue(REGION_RO)->push_value(layer, ptr_biases, 0.0f, num_rows);
         } else {
             if (gna_config.gnaFlags.input_low_precision == false) {
-                gnamem->getQueue(REGION_RO)->push_value<int32_t>(layer, ptr_biases, 0, num_rows_out);
+                gnamem->getQueue(REGION_RO)->push_value<int32_t>(layer, ptr_biases, 0, num_rows);
             } else {
-                gnamem->getQueue(REGION_RO)->push_value<int8_t>(layer, ptr_biases, 0, num_rows_out);
+                gnamem->getQueue(REGION_RO)->push_value<int8_t>(layer, ptr_biases, 0, num_rows);
             }
         }
-        connectInput(layer, ptr_weights, num_data_bytes_in, 0, biasesLayerIdx);
+        connectInput(layer, ptr_weights, num_data_bytes, 0, biasesLayerIdx);
         break;
 
     default:
