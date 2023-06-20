@@ -17,7 +17,38 @@ using namespace ov::intel_gna::pass;
 bool InsertTransposeAfterConvOrPool::run_on_model(const std::shared_ptr<ngraph::Function>& f) {
     RUN_ON_FUNCTION_SCOPE(InsertTransposeAfterConvOrPool);
     bool is_graph_modfied = false;
+    bool max_pool_14_found = false;
+
     for (auto& node : f->get_ordered_ops()) {
+        if (node->get_friendly_name() == "MaxPool_14" && m_transpose_output) {
+            max_pool_14_found = true;
+
+            log::debug() << "POSTPROC_OFF: Insert transpose operation into the graph after layer 'MaxPool_14'\n";
+
+            auto consumers = node->output(0).get_target_inputs();
+
+            ngraph::Shape transposeInShape = {1, 4, 32};
+            auto reshapeConstBefore = std::make_shared<ngraph::opset7::Constant>(ngraph::element::Type_t::i64,
+                                                                                 ngraph::Shape{transposeInShape.size()},
+                                                                                 transposeInShape);
+            auto reshapeBefore = std::make_shared<ngraph::opset7::Reshape>(node, reshapeConstBefore, false);
+            reshapeBefore->set_friendly_name(node->get_friendly_name() + "/reshape_out");
+            ngraph::copy_runtime_info(node, {reshapeBefore, reshapeConstBefore});
+
+            auto transpose_order = ngraph::Shape{0, 2, 1};
+            auto transpose_order_const = ngraph::opset7::Constant::create(ngraph::element::i64,
+                                                                          ngraph::Shape{transpose_order.size()},
+                                                                          transpose_order);
+            auto transpose = std::make_shared<ngraph::opset7::Transpose>(reshapeBefore, transpose_order_const);
+            transpose->set_friendly_name(node->get_friendly_name() + "/transpose_out");
+            ngraph::copy_runtime_info(node, {transpose, transpose_order_const});
+
+            for (auto& input : consumers) {
+                input.replace_source_output(transpose);
+            }
+            is_graph_modfied = true;
+        }
+
         if (std::dynamic_pointer_cast<ngraph::opset7::Convolution>(node) == nullptr &&
             std::dynamic_pointer_cast<ngraph::opset7::MaxPool>(node) == nullptr) {
             continue;
@@ -114,6 +145,12 @@ bool InsertTransposeAfterConvOrPool::run_on_model(const std::shared_ptr<ngraph::
             input.replace_source_output(transpose);
         }
         is_graph_modfied = true;
+    }
+
+    if (m_transpose_output && !max_pool_14_found) {
+        THROW_GNA_EXCEPTION
+            << "POSTPROC_OFF: Attempting to insert a transpose operation after the 'MaxPool_14' layer, but the layer "
+               "does not exist in the graph";
     }
 
     return is_graph_modfied;

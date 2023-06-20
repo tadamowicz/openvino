@@ -192,6 +192,8 @@ static constexpr Property<HWGeneration> compile_target{"GNA_HW_COMPILE_TARGET"};
  */
 static constexpr Property<bool> memory_reuse{"GNA_COMPACT_MODE"};
 
+static constexpr Property<bool> postproc_off{"GNA_POSTPROC_MODE"};
+
 /**
  * @brief Enum to define PWL design algorithm
  * @ingroup ov_runtime_gna_prop_cpp_api

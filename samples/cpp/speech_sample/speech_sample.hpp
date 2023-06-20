@@ -55,6 +55,8 @@ static const char performance_counter_message[] = "Optional. Enables per-layer p
 /// @brief message for disabling of compact (memory_reuse) mode
 static const char memory_reuse_message[] = "Optional. Disables memory optimizations for compiled model.";
 
+static const char postproc_off_message[] = "Optional. Disables postprocessing for compiled model.";
+
 /// @brief message for user library argument
 static const char custom_cpu_library_message[] = "Required for CPU plugin custom layers."
                                                  "Absolute path to a shared library with the kernels implementations.";
@@ -131,6 +133,9 @@ DEFINE_bool(h, false, help_message);
 
 /// \brief Define flag for disabling compact (memory_reuse) mode <br>
 DEFINE_bool(memory_reuse_off, false, memory_reuse_message);
+
+/// \brief Define flag for disabling postproccesing <br>
+DEFINE_bool(postproc_off, false, postproc_off_message);
 
 /// \brief Define parameter for set image file <br>
 /// It is a required parameter

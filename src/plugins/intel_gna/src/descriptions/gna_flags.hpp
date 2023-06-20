@@ -15,6 +15,7 @@ namespace intel_gna {
 struct GNAFlags {
     uint8_t num_requests = 1;
     bool compact_mode = true;
+    bool postproc_off = false;
     bool exclusive_async_requests = false;
     ov::intel_gna::PWLDesignAlgorithm pwl_design_algorithm = ov::intel_gna::PWLDesignAlgorithm::UNDEFINED;
     bool uniformPwlDesign = false;

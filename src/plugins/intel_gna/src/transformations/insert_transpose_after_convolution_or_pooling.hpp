@@ -21,8 +21,12 @@ namespace pass {
  *           Convolution
  */
 class InsertTransposeAfterConvOrPool : public ngraph::pass::FunctionPass {
+private:
+    bool m_transpose_output;
+
 public:
     OPENVINO_RTTI("InsertTransposeAfterConvOrPool", "0");
+    InsertTransposeAfterConvOrPool(bool transposeOutput) : m_transpose_output(transposeOutput) {}
     bool run_on_model(const std::shared_ptr<ngraph::Function>& f) override;
 };
 

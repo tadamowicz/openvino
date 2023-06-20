@@ -193,6 +193,7 @@ DECLARE_GNA_CONFIG_KEY(COMPILE_TARGET);
  * @brief if enabled produced minimum memory footprint for loaded network in GNA memory, default value is YES
  */
 DECLARE_GNA_CONFIG_KEY(COMPACT_MODE);
+DECLARE_GNA_CONFIG_KEY(POSTPROC_MODE);
 
 /**
  * @brief The option to enable/disable uniformly distributed PWL algorithm.

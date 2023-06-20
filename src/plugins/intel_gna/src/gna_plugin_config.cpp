@@ -179,6 +179,14 @@ void Config::UpdateFromMap(const std::map<std::string, std::string>& config) {
             } else {
                 THROW_GNA_EXCEPTION << "GNA compact mode should be true/false (YES/NO), but not " << value;
             }
+        } else if (key == GNA_CONFIG_KEY(POSTPROC_MODE) || key == ov::intel_gna::postproc_off) {
+            if (value == PluginConfigParams::YES) {
+                gnaFlags.postproc_off = true;
+            } else if (value == PluginConfigParams::NO) {
+                gnaFlags.postproc_off = false;
+            } else {
+                THROW_GNA_EXCEPTION << "GNA postproc mode should be true/false (YES/NO), but not " << value;
+            }
         } else if (key == CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)) {
             if (value == PluginConfigParams::YES) {
                 gnaFlags.exclusive_async_requests = true;
@@ -327,6 +335,8 @@ void Config::AdjustKeyMapValues() {
     keyConfigMap[GNA_CONFIG_KEY(COMPILE_TARGET)] = gnaCompileTarget;
     keyConfigMap[ov::intel_gna::memory_reuse.name()] =
         gnaFlags.compact_mode ? PluginConfigParams::YES : PluginConfigParams::NO;
+    keyConfigMap[ov::intel_gna::postproc_off.name()] =
+        gnaFlags.postproc_off ? PluginConfigParams::YES : PluginConfigParams::NO;
     keyConfigMap[CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)] =
         gnaFlags.exclusive_async_requests ? PluginConfigParams::YES : PluginConfigParams::NO;
     keyConfigMap[ov::hint::performance_mode.name()] = ov::util::to_string(performance_mode);

@@ -642,9 +642,14 @@ void GNAPlugin::FillInputsAndOutputsTranspositionInfo(const InferenceEngine::CNN
                 std::swap(transpositionInfoPart.num_transpose_rows, transpositionInfoPart.num_transpose_columns);
             }
         }
-        transpose_outputs_info.insert({outLayer->name, transpositionInfo});
-        log::debug() << "Output " << outLayer->name << " transposition info: \n";
-        printTranspositionInfo(transpositionInfo);
+        if (config.gnaFlags.postproc_off) {
+            log::debug() << "POSTPROC_OFF: Post-processing is disabled. Transposition information for layer:'"
+                         << outLayer->name << "' is dropped\n";
+        } else {
+            transpose_outputs_info.insert({outLayer->name, transpositionInfo});
+            log::debug() << "Output " << outLayer->name << " transposition info: \n";
+            printTranspositionInfo(transpositionInfo);
+        }
     }
 }
 
@@ -756,7 +761,7 @@ void GNAPlugin::LoadNetwork(const CNNNetwork& _network) {
         manager.register_pass<ov::intel_gna::pass::SwapInputMatMulWithBias>();
         manager.register_pass<ov::intel_gna::pass::SwapInputMatMul>();
         manager.register_pass<ov::intel_gna::pass::HandleTransposesAroundMatMul>();
-        manager.register_pass<ov::intel_gna::pass::InsertTransposeAfterConvOrPool>();
+        manager.register_pass<ov::intel_gna::pass::InsertTransposeAfterConvOrPool>(config.gnaFlags.postproc_off);
         manager.register_pass<ov::intel_gna::pass::Unfuse2dto4dReshapeAndTranspose>();
         manager.register_pass<ov::intel_gna::pass::Unfuse4dto2dReshapeAndTranspose>();
         manager.register_pass<ov::intel_gna::pass::RemoveExtraReshapes>();
