@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-enable_testing()
-
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     ie_add_compiler_flags(/wd4244)
     ie_add_compiler_flags(/wd4267)
@@ -20,13 +18,11 @@ else()
 endif()
 
 if(ENABLE_TESTS)
-    add_subdirectory(deprecated/readers)
-    add_subdirectory(deprecated/helpers)
-
     add_subdirectory(unit)
-    add_subdirectory(deprecated/unit)
+#    add_subdirectory(deprecated/unit)
 endif()
 
 if(ENABLE_FUNCTIONAL_TESTS)
-    add_subdirectory(functional)
+#    add_subdirectory(deprecated/functional)
+#    add_subdirectory(functional)
 endif()

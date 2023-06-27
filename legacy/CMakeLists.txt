@@ -34,12 +34,12 @@ ie_faster_build(${TARGET_NAME}_obj
 target_include_directories(${TARGET_NAME}_obj PRIVATE
     ${PUBLIC_HEADERS_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    $<TARGET_PROPERTY:inference_engine_obj,SOURCE_DIR>/src # For CNNNetworkNGraphImpl
+    ${OpenVINO_SOURCE_DIR}/src/inference/src #For CNNNetworkNGraphImpl. ptomasz1: Dirty hack, but inference_engine_obj is not exported in developer package
     $<TARGET_PROPERTY:openvino::runtime::dev,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:openvino::pugixml,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:openvino_intel_gna_plugin,SOURCE_DIR>/src/ops)
 
-target_compile_definitions(${TARGET_NAME}_obj PRIVATE $<TARGET_PROPERTY:ngraph,INTERFACE_COMPILE_DEFINITIONS>)
+target_compile_definitions(${TARGET_NAME}_obj PRIVATE $<TARGET_PROPERTY:openvino::ngraph_reference,INTERFACE_COMPILE_DEFINITIONS>)
 
 target_link_libraries(${TARGET_NAME}_obj PRIVATE openvino::itt)
 
@@ -69,7 +69,7 @@ target_include_directories(${TARGET_NAME}_s
         $<BUILD_INTERFACE:${PUBLIC_HEADERS_DIR}>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        $<TARGET_PROPERTY:inference_engine_obj,SOURCE_DIR>/src # For CNNNetworkNGraphImpl
+        ${OpenVINO_SOURCE_DIR}/src/inference/src #For CNNNetworkNGraphImpl. ptomasz1: Dirty hack, but inference_engine_obj is not exported in developer package
         $<TARGET_PROPERTY:openvino::runtime::dev,INTERFACE_INCLUDE_DIRECTORIES>
         $<TARGET_PROPERTY:openvino::pugixml,INTERFACE_INCLUDE_DIRECTORIES>
         $<TARGET_PROPERTY:openvino_intel_gna_plugin,SOURCE_DIR>/src/ops)

@@ -22,7 +22,6 @@
 #include <transformations/opset_conversions/convert_opset3_to_opset2.hpp>
 
 #include "ngraph_functions/subgraph_builders.hpp"
-#include "shared_test_classes/base/low_precision_transformations/layer_transformation.hpp"
 
 using namespace testing;
 using namespace InferenceEngine;

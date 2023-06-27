@@ -2,10 +2,32 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if (NOT ENABLE_INTEL_GNA)
-    return()
-endif()
+cmake_minimum_required(VERSION 3.22)
 
+project(OpenvinoGnaPlugin)
+
+find_package(OpenVINODeveloperPackage REQUIRED)
+
+set(GNA_LIB_VERSION "03.05.00.1906" CACHE STRING "GNA Library version number")
+set(GNA_ROOT_DIR ${OpenVINO_SOURCE_DIR}/temp/gna_${GNA_LIB_VERSION})
+
+set(GNA_PATH ${GNA_ROOT_DIR}/win64/x64)
+set(GNA_EXT_DIR ${GNA_ROOT_DIR})
+
+set(GNA_PLUGIN_OUTPUT_DIR ${CMAKE_BINARY_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${GNA_PLUGIN_OUTPUT_DIR}/${BIN_FOLDER})
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${GNA_PLUGIN_OUTPUT_DIR}/${BIN_FOLDER})
+set(CMAKE_COMPILE_PDB_OUTPUT_DIRECTORY ${GNA_PLUGIN_OUTPUT_DIR}/${BIN_FOLDER})
+set(CMAKE_PDB_OUTPUT_DIRECTORY ${GNA_PLUGIN_OUTPUT_DIR}/${BIN_FOLDER})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${GNA_PLUGIN_OUTPUT_DIR}/${BIN_FOLDER})
+
+message("OpenVINO source directory = ${OpenVINO_SOURCE_DIR}")
+message("GNA package directory = ${GNA_ROOT_DIR}")
+message("Artifacts directory = ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
+enable_testing()
+
+#deal with setup of legacy projects first...
 add_subdirectory(legacy)
 
 set(TARGET_NAME "openvino_intel_gna_plugin")
@@ -76,13 +98,17 @@ target_compile_definitions(${TARGET_NAME}_test_static
             INTEGER_LOW_P
             USE_STATIC_IE)
 
-target_link_libraries(${TARGET_NAME}_test_static PUBLIC inference_engine_s inference_engine_transformations libGNA::API)
+
+target_link_libraries(${TARGET_NAME}_test_static
+    PUBLIC debug inference_engine_sd optimized inference_engine_s
+    PUBLIC libGNA::API)
 target_include_directories(${TARGET_NAME}_test_static
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         $<TARGET_PROPERTY:inference_engine_legacy,INTERFACE_INCLUDE_DIRECTORIES>
     PRIVATE
-        $<TARGET_PROPERTY:openvino::conditional_compilation,INTERFACE_INCLUDE_DIRECTORIES>)
+        $<TARGET_PROPERTY:openvino::conditional_compilation,INTERFACE_INCLUDE_DIRECTORIES>
+        $<TARGET_PROPERTY:openvino::runtime::dev,INTERFACE_INCLUDE_DIRECTORIES>)
 
 set_target_properties(${TARGET_NAME} ${TARGET_NAME}_test_static
                       PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE ${ENABLE_LTO})
