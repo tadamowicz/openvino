@@ -130,24 +130,30 @@ inline typename ExtractRawPtr<T>::raw_ptr_type raw_ptr(T obj) {
  * @brief gets pointer to previous layer
  * @param idx - index in previous layer connection - in other layers only zero idx will be used
  * @param layer - source layer
- * @param shouldSkip - skip kriteria
+ * @param shouldSkip - skip criteria
+ * @param no_throw - doesn't throw exception if previous layer missed
  */
 template <class Layer>
 inline InferenceEngine::CNNLayerPtr CNNNetPrevLayerSkipCertain(Layer layer,
                                                                int idx,
-                                                               const std::function<bool(CNNLayerPtr)>& shouldSkip) {
+                                                               const std::function<bool(CNNLayerPtr)>& shouldSkip,
+                                                               bool no_throw = false) {
     IE_ASSERT(layer != nullptr);
     if (!CNNNetHasPrevLayer(raw_ptr(layer), idx)) {
+        if (no_throw) {
+            return nullptr;
+        };
         THROW_GNA_EXCEPTION << "Can't find PrevLayer. All layers are skipped.";
-        return nullptr;
     }
     auto prev = CNNNetPrevLayer(layer, idx);
 
     /// using upper search simplified version
     while (shouldSkip(prev)) {
         if (!CNNNetHasPrevLayer(prev.get(), 0)) {
+            if (no_throw) {
+                return nullptr;
+            };
             THROW_GNA_EXCEPTION << "Can't find PrevLayer. All layers are skipped.";
-            return nullptr;
         }
         prev = CNNNetPrevLayer(prev, 0);
     }
