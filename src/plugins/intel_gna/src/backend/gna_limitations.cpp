@@ -679,14 +679,9 @@ constexpr uint32_t Limitations::kMemoryPageSize;
 
 thread_local std::shared_ptr<Limitations> Limitations::k_instance{nullptr};
 
-Limitations::Limitations(const DeviceVersion& target) {
-    m_use_only_16bit_conv_weights =
-        (target == DeviceVersion::GNA1_0 || target == DeviceVersion::GNAEmbedded1_0 ||
-         target == DeviceVersion::GNA2_0 || target == DeviceVersion::GNA3_0 || target == DeviceVersion::GNA3_1);
-
-    m_mem_alignment = get_memory_alignment_bytes(target);
-    m_cnn_validator = cnn2d::AbstractValidator::Create(target);
-}
+Limitations::Limitations(const DeviceVersion& target)
+    : m_target_limitations(get_limitations_for_target(target)),
+      m_cnn_validator(cnn2d::AbstractValidator::Create(target)) {}
 
 void Limitations::init(const DeviceVersion& compile_target) {
     k_instance = std::shared_ptr<Limitations>(new Limitations(compile_target));
@@ -697,18 +692,19 @@ size_t Limitations::get_min_batch_to_fit_in_buffer(InferenceEngine::DataPtr inpu
     return total_size / kBufferMaxSize + 1;
 }
 
-size_t Limitations::get_memory_alignment_bytes(const DeviceVersion& target) const {
-    static const std::unordered_map<DeviceVersion, size_t> mem_alignment_map{{DeviceVersion::GNA1_0, 64},
-                                                                             {DeviceVersion::GNAEmbedded1_0, 64},
-                                                                             {DeviceVersion::GNA2_0, 64},
-                                                                             {DeviceVersion::GNA3_0, 64},
-                                                                             {DeviceVersion::GNA3_1, 64},
-                                                                             {DeviceVersion::GNA3_5, 64},
-                                                                             {DeviceVersion::GNAEmbedded3_5, 64},
-                                                                             {DeviceVersion::GNA3_6, 16},
-                                                                             {DeviceVersion::GNA4_0, 16}};
+Limitations::TargetLimitations Limitations::get_limitations_for_target(const DeviceVersion& target) const {
+    static const std::unordered_map<DeviceVersion, TargetLimitations> limitations_map{
+        {DeviceVersion::GNA1_0, TargetLimitations(true, true, 64)},
+        {DeviceVersion::GNAEmbedded1_0, TargetLimitations(true, true, 64)},
+        {DeviceVersion::GNA2_0, TargetLimitations(true, true, 64)},
+        {DeviceVersion::GNA3_0, TargetLimitations(true, true, 64)},
+        {DeviceVersion::GNA3_1, TargetLimitations(true, true, 64)},
+        {DeviceVersion::GNA3_5, TargetLimitations(false, false, 64)},
+        {DeviceVersion::GNAEmbedded3_5, TargetLimitations(false, false, 64)},
+        {DeviceVersion::GNA3_6, TargetLimitations(false, false, 16)},
+        {DeviceVersion::GNA4_0, TargetLimitations(false, false, 16)}};
 
-    return common::GetValueForKey<DeviceVersion, size_t>(target, mem_alignment_map);
+    return common::GetValueForKey<DeviceVersion, TargetLimitations>(target, limitations_map);
 }
 
 bool SupportedElementTypes::IsParameterTypeSupported(ov::element::Type elem_type, bool is_exception_allowed) {
@@ -1064,10 +1060,6 @@ void Limitations::check_all_ops_supported(const std::shared_ptr<ov::Model>& mode
     if (!error.str().empty()) {
         THROW_GNA_EXCEPTION << error.str();
     }
-}
-
-bool Limitations::use_only_16bit_convolution_weights() const {
-    return m_use_only_16bit_conv_weights;
 }
 
 bool Limitations::validate_conv_concat_axis(const InferenceEngine::ConcatLayer* concat_layer) {
