@@ -2392,6 +2392,42 @@ void GNAGraphCompiler::CreateLayerPrimitive(CNNLayerPtr layer) {
     }
 }
 
+bool GNAGraphCompiler::should_use_scratch_allocation(const InferenceEngine::CNNLayerPtr& layer, bool fp32_mode) const {
+    // In SW_FP32 mode, max pooling or activation functions are implemented as separate operations and cannot be
+    // integrated with the preceding layer during computation.
+    if (fp32_mode || Limitations::get_instance()->use_scratch_for_fusable_layers()) {
+        return true;
+    }
+
+    auto is_non_functional_layer = [](CNNLayerPtr l) {
+        return LayerInfo(l).isNonFunctional();
+    };
+
+    auto next_layer = CNNNetCheckNextLayerSkipCertain(layer, 0, 0, true, is_non_functional_layer).first;
+    auto prev_layer = CNNNetPrevLayerSkipCertain(layer, 0, is_non_functional_layer, true);
+
+    if (LayerInfo(layer).isConvolution()) {
+        if (next_layer && LayerInfo(next_layer).isFusableWithConv()) {
+            return false;
+        }
+    }
+
+    if (LayerInfo(layer).isFusableWithConv()) {
+        if (prev_layer && next_layer && LayerInfo(prev_layer).isConvolution() &&
+            LayerInfo(next_layer).isFusableWithConv()) {
+            return false;
+        }
+    }
+
+    if (LayerInfo(layer).isFullyConnected() || LayerInfo(layer).isEltwise() || LayerInfo(layer).isScaleShift()) {
+        if (next_layer && LayerInfo(next_layer).isActivation()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void GNAGraphCompiler::connectOutput(InferenceEngine::CNNLayerPtr layer, void* ptr, size_t num_data_bytes_out) {
     auto getOffsetForBinding = [](InferenceEngine::CNNLayerPtr layer) {
         int32_t output_offset = 0;
@@ -2588,10 +2624,12 @@ void GNAGraphCompiler::connectOutput(InferenceEngine::CNNLayerPtr layer, void* p
     // Check that layer will be an output
     if (LayerInfo(layer).isOutput() || !nextLayer) {
         mem_region = REGION_OUTPUTS;
-    }
-    if (LayerInfo(layer).isConst()) {
+    } else if (LayerInfo(layer).isConst()) {
         mem_region = REGION_RO;
+    } else if (!should_use_scratch_allocation(layer, gna_config.gnaFlags.sw_fp32)) {
+        return;
     }
+
     gnamem->getQueue(mem_region)->reserve_ptr(layer, ptr, num_data_bytes_out);
 }
 
