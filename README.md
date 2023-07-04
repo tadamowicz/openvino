@@ -1,92 +1,131 @@
 ## Plugin Compilation
 
 
-#### Assumptions
 
-- OpenVINO version used 2023.0 (**branch releases/2023/0**)
+Assumptions
+-----------
+- OpenVINO version used is commit hash stored in `openvino_version.txt`
+- The `openvino_version.txt` file located in plugin's source directory
 - Commands syntax is bash-based
 - There are following (environmental) variables defined:
 ````bash
-export openvino_source_dir = <path to local openvino source directory>
-export developer_package_dir = <path to generated developer package directory>
-export build_type = <Release|Debug|etc.>
-export gna_plugin_source_dir = <path to local gna plugin souce directory>
-export gna_plugin_build_dir = <path to generated gna plugin build>
+export OPENVINO_SOURCE_DIR = <path to local openvino source directory>
+export DEVELOPER_PACKAGE_DIR = <path to generated developer package directory>
+export BUILD_TYPE = <Release|Debug|etc.>
+export GNA_PLUGIN_SOURCE_DIR = <path to local gna plugin souce directory>
+export GNA_PLUGIN_BUILD_DIR = <path to generated gna plugin build>
 ````
 
 
-#### Prerequisties
+
+Prerequisties
+-------------
+
+##### Prepare OpenVino Developer Package
 
 Switch to respective version of openvino
 ````bash
-cd $openvino_source_dir
-git checkout releases/2023/0
+cd $OPENVINO_SOURCE_DIR
+git checkout <commit hash from $GNA_PLUGIN_SOURCE_DIR/openvino_version.txt>
 ````
 
-Prepare openvino developer package (build openvino)
+build it
 ````bash
-cmake -S $openvino_source_dir -B $developer_package_dir -D CMAKE_BUILD_TYPE=$build_type -D ENABLE_TESTS=ON -D ENABLE_FUNCTIONAL_TESTS=ON
-cmake --build $developer_package_dir --target ov_dev_targets --config $build_type
+cmake -S $OPENVINO_SOURCE_DIR -B $DEVELOPER_PACKAGE_DIR -D CMAKE_BUILD_TYPE=$BUILD_TYPE -D ENABLE_TESTS=ON -D ENABLE_FUNCTIONAL_TESTS=ON
+cmake --build $DEVELOPER_PACKAGE_DIR --target ov_dev_targets --config $BUILD_TYPE
 ````
 > **Note**
 > - It's important to keep in mind that `CMAKE_BUILD_TYPE` has no effect for multi-configuration generators such as Visual Studio. Therefore in this case config type has to be provided to build command as above.
 > - There is yet another target `ie_dev_targets` can be used, but it seems to have identical result as `ov_dev_targets`
 
+##### Get GNA local version of plugin source
+
 Clone **gna.plugin** repository
 ````bash
-git clone https://github.com/intel-innersource/frameworks.ai.gna.plugin.git $gna_plugin_source_dir
+git clone https://github.com/intel-innersource/frameworks.ai.gna.plugin.git $GNA_PLUGIN_SOURCE_DIR
 ````
 
 
-#### Plugin build
+##### Prepare configuration for functional tests
+There is an additional step needed in order to run functional tests. You have create `plugins.xml` files (one for *Debug* and one for *Release*) with following content:
+````xml
+<ie>
+    <plugins>
+        <plugin name="GNA" location="${GNA_PLUGIN_BUILD_DIR}/bin/intel64/${BUILD_TYPE}/openvino_intel_gna_plugin.dll">
+        </plugin>
+    </plugins>
+</ie>
+````
+
+and copy them respectively to `$OPENVINO_SOURCE_DIR/bin/intel64/$BUILD_TYPE/`
+
+> **Note**
+> Remember that Windows build uses different names of gna plugin library depending onf build type:
+> - `openvino_intel_gna_plugin.dll` for `Release` build type
+> - `openvino_intel_gna_plugind.dll` for `Debug` build type
+
+
+
+Plugin build
+------------
 
 Create **gna.plugin** solution
 ````bash
-cmake -S $gna_plugin_source_dir -B $gna_plugin_build_dir -D OpenVINODeveloperPackage_DIR=$developer_package_dir -D ENABLE_TESTS=ON -D ENABLE_FUNCTIONAL_TESTS=ON
+cmake -S $GNA_PLUGIN_SOURCE_DIR -B $GNA_PLUGIN_BUILD_DIR -D OpenVINODeveloperPackage_DIR=$DEVELOPER_PACKAGE_DIR -D ENABLE_TESTS=ON -D ENABLE_FUNCTIONAL_TESTS=ON
 ````
 
 It happens often that for development purposes many versions of gna library exist in openvino `temp\` directory. Therefore it is possible to use specific version of the library by defining `GNA_LIB_VERSION` otherwise default version defined in main `CMakeLists.txt` will be applied
 ````bash
-export gna_version=<number of specific gna version>
-cmake -S $gna_plugin_source_dir -B $gna_plugin_build_dir -D OpenVINODeveloperPackage_DIR=$developer_package_dir -D ENABLE_TESTS=ON -D ENABLE_FUNCTIONAL_TESTS=ON -D GNA_LIB_VERSION=$gna_version
+export GNA_VERSION=<number of specific gna version>
+cmake -S $GNA_PLUGIN_SOURCE_DIR -B $GNA_PLUGIN_BUILD_DIR -D OpenVINODeveloperPackage_DIR=$DEVELOPER_PACKAGE_DIR -D ENABLE_TESTS=ON -D ENABLE_FUNCTIONAL_TESTS=ON -D GNA_LIB_VERSION=$GNA_VERSION
 ````
-
 
 Run build
 ````bash
-cmake --build $gna_plugin_build_dir --config $build_type
+cmake --build $GNA_PLUGIN_BUILD_DIR --config $BUILD_TYPE
 ````
 > **Note**
 > Developer package has bo be built for respective configuration type otherwise gna plugin build will fail.
 
-#### Plugin's tests build and run
+
+
+Build and run plugin's tests
+----------------------------
 
 By default all tests are compiled during plugin build, however there is a possibility to selectively compile selected tests by using `--target` option.
 
 For example to compile unit tests use `ov_gna_unit_tests` target run
 ````bash
-cmake --build $gna_plugin_build_dir --config $build_type --target ov_gna_unit_tests
+cmake --build $GNA_PLUGIN_BUILD_DIR --config $BUILD_TYPE --target ov_gna_unit_tests
 ````
 
-In order to run tests do
+and simply run
 ````bash
-cd $gna_plugin_build_dir
-ctest -C $build_type
+cd $GNA_PLUGIN_BUILD_DIR
+ctest -C $BUILD_TYPE
 ````
 
-> **Note**
-> Currently only `ov_gna_unit_tests` are supported
+In order to get detailed output use `-V` parameter of `ctest`
+````bash
+ctest -C $BUILD_TYPE -V
+````
 
-#### Handy tips
+
+
+Handy tips
+----------
 
 Sometimes it is handy to run cmake project generation in trace mode in order to figure out what happened. In order to do this add cmake's `--trace-source=<name of cmakefile to trace>` option. Besides option `--trace-expand` will expand variable into their values.
 
 For example command below will print out trace messsages from `libGNAConfig.cmake` file
 ````bash
-cmake -S $gna_plugin_source_dir -B $gna_plugin_build_dir -D OpenVINODeveloperPackage_DIR=$developer_package_dir -D OV_ROOT_DIR=$openvino_source_dir --trace-source=libGNAConfig.cmake --trace-expand
+cmake -S $GNA_PLUGIN_SOURCE_DIR -B $GNA_PLUGIN_BUILD_DIR -D OpenVINODeveloperPackage_DIR=$DEVELOPER_PACKAGE_DIR -D OV_ROOT_DIR=$OPENVINO_SOURCE_DIR --trace-source=libGNAConfig.cmake --trace-expand
 ````
 
-#### References
+
+
+References
+----------
 
 https://docs.openvino.ai/2022.1/openvino_docs_ie_plugin_dg_plugin_build.html
 https://docs.openvino.ai/2022.3/openvino_docs_ie_plugin_dg_plugin_build.html

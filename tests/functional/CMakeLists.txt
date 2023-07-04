@@ -8,24 +8,21 @@ endif()
 
 set(TARGET_NAME ov_gna_func_tests)
 
-addIeTargetTest(
-        NAME ${TARGET_NAME}
-        ROOT ${CMAKE_CURRENT_SOURCE_DIR}
-        INCLUDES
-            ${CMAKE_CURRENT_SOURCE_DIR}
-        DEPENDENCIES
-            openvino_intel_gna_plugin
-        LINK_LIBRARIES
-            funcSharedTests
-        ADD_CLANG_FORMAT
-        LABELS
-            GNA
+file(GLOB_RECURSE MODULE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR} *.cpp)
+file(GLOB_RECURSE MODULE_HEADERS ${CMAKE_CURRENT_SOURCE_DIR} *.hpp)
+
+add_executable(${TARGET_NAME} ${MODULE_SOURCES} ${MODULE_HEADERS})
+target_link_libraries(${TARGET_NAME}
+    openvino::gmock
+    openvino::gtest
+    openvino::gtest_main
+    openvino::funcTestUtils
+    openvino::funcSharedTests
+    openvino::sharedTestClasses
 )
 
-target_compile_definitions(${TARGET_NAME}
-        PUBLIC ${ARGV}
-            GNA_DATA_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/data\")
+set_target_properties(${TARGET_NAME} PROPERTIES VS_DEBUGGER_ENVIRONMENT "PATH=%PATH%;${OpenVINO_SOURCE_DIR}/temp/tbb/bin;${OpenVINO_SOURCE_DIR}/${BIN_FOLDER}/$<CONFIG>;${GNA_PATH}")
 
-if (ENABLE_DATA)
-    add_dependencies(${TARGET_NAME} data)
-endif()
+add_test(NAME ${TARGET_NAME}_run COMMAND ${TARGET_NAME})
+set_tests_properties(${TARGET_NAME}_run PROPERTIES ENVIRONMENT "PATH=${OpenVINO_SOURCE_DIR}/temp/tbb/bin")
+set_tests_properties(${TARGET_NAME}_run PROPERTIES ENVIRONMENT_MODIFICATION "PATH=path_list_append:${OpenVINO_SOURCE_DIR}/${BIN_FOLDER}/$<CONFIG>;PATH=path_list_append:${GNA_PATH}")

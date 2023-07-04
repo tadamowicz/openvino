@@ -24,5 +24,5 @@ endif()
 
 if(ENABLE_FUNCTIONAL_TESTS)
 #    add_subdirectory(deprecated/functional)
-#    add_subdirectory(functional)
+    add_subdirectory(functional)
 endif()
