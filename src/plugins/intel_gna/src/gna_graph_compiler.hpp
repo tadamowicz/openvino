@@ -57,6 +57,7 @@ private:
     std::unique_ptr<const limitations::cnn2d::AbstractValidator> cnn2dValidator;
 
     bool ShouldUseOnlyConv2DGnaIface() const;
+    bool should_use_scratch_allocation(const InferenceEngine::CNNLayerPtr& layer, bool fp32_mode) const;
 
 public:
     backend::DnnComponents dnnComponents;
