@@ -1,0 +1,19 @@
+name: Build
+on:
+    pull_request:
+      types: [opened, reopened, synchronize, edited]
+    push:
+      branches:
+        - "main"
+      tags:
+        - "*"
+
+jobs:
+  build-and-push:
+    runs-on:
+      - self-hosted
+      - Windows
+
+    steps:
+    - name: Checkout main repository
+      uses: actions/checkout@v3
