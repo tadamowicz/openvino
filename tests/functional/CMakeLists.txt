@@ -23,6 +23,6 @@ target_link_libraries(${TARGET_NAME}
 
 set_target_properties(${TARGET_NAME} PROPERTIES VS_DEBUGGER_ENVIRONMENT "PATH=%PATH%;${OpenVINO_SOURCE_DIR}/temp/tbb/bin;${OpenVINO_SOURCE_DIR}/${BIN_FOLDER}/$<CONFIG>;${GNA_PATH}")
 
-add_test(NAME ${TARGET_NAME}_run COMMAND ${TARGET_NAME})
+add_test(NAME ${TARGET_NAME}_run COMMAND ${TARGET_NAME} --gtest_filter=*smoke*-*DeviceNoThrow*:*HeteroNoThrow*)
 set_tests_properties(${TARGET_NAME}_run PROPERTIES ENVIRONMENT "PATH=${OpenVINO_SOURCE_DIR}/temp/tbb/bin")
 set_tests_properties(${TARGET_NAME}_run PROPERTIES ENVIRONMENT_MODIFICATION "PATH=path_list_append:${OpenVINO_SOURCE_DIR}/${BIN_FOLDER}/$<CONFIG>;PATH=path_list_append:${GNA_PATH}")

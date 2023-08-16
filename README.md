@@ -92,6 +92,8 @@ cmake --build $GNA_PLUGIN_BUILD_DIR --config $BUILD_TYPE
 Build and run plugin's tests
 ----------------------------
 
+##### Using ctest
+
 By default all tests are compiled during plugin build, however there is a possibility to selectively compile selected tests by using `--target` option.
 
 For example to compile unit tests use `ov_gna_unit_tests` target run
@@ -108,6 +110,33 @@ ctest -C $BUILD_TYPE
 In order to get detailed output use `-V` parameter of `ctest`
 ````bash
 ctest -C $BUILD_TYPE -V
+````
+
+##### Manually
+
+There is a possibility to run test from selected target manually. All test binaries reside in `$GNA_PLUGIN_BUILD_DIR/bin/intel64/$BUILD_TYPE`
+
+In order to run test target manually there is a need to point where necessary shared libraries are located
+````bash
+export TBB_BIN_PATH=$OPENVINO_SOURCE_DIR/temp/tbb/bin
+export OV_BIN_PATH=$OPENVINO_SOURCE_DIR/bin/intel64/$BUILD_TYPE
+export GNA_LIB_VERSION=<set specific GNA library version>
+export GNALIB_BIN_PATH=$OPENVINO_SOURCE_DIR/temp/gna_$GNA_LIB_VERSION/win64/x64
+````
+
+In the same terminal run respective test binary
+
+ - legacy transformation tests
+````bash
+$GNA_PLUGIN_BUILD_DIR/bin/intel64/$BUILD_TYPE/ov_legacy_transformations_tests
+````
+ - GNA plugin unit tests
+````bash
+$GNA_PLUGIN_BUILD_DIR/bin/intel64/$BUILD_TYPE/ov_gna_unit_tests
+````
+ - GNA plugin functional tests
+````bash
+$GNA_PLUGIN_BUILD_DIR/bin/intel64/$BUILD_TYPE/ov_gna_func_tests --gtest_filter=*smoke*-*DeviceNoThrow*:*HeteroNoThrow*
 ````
 
 
