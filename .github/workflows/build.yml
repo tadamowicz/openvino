@@ -1,4 +1,5 @@
 name: Build
+
 on:
     pull_request:
       types: [opened, reopened, synchronize, edited]
@@ -8,8 +9,13 @@ on:
       tags:
         - "*"
 
+env:
+  DOCKER_IMAGE: 'harbor.pact.intel.com/common-windows/gna-plugin:v1.0'
+  BUILD_TYPE: 'Release'
+  BUILD_DIR: 'C:\code\build'
+
 jobs:
-  build-and-push:
+  build:
     runs-on:
       - self-hosted
       - Windows
@@ -17,3 +23,34 @@ jobs:
     steps:
     - name: Checkout main repository
       uses: actions/checkout@v3
+
+    - name: Build
+      id: container-run
+      uses: intel-innersource/frameworks.devops.process-automation.github-actions/windows-container-run@v1.0.4
+      with:
+        docker-image: ${{ env.DOCKER_IMAGE }}
+        environment-variables: http_proxy;https_proxy;no_proxy;BUILD_TYPE;BUILD_DIR
+        script: >
+          .\scripts\prepare_and_build.ps1;
+
+  test:
+    needs: build
+    runs-on:
+      - self-hosted
+      - Windows
+
+    steps:
+    - name: Test
+      id: container-run-test
+      uses: intel-innersource/frameworks.devops.process-automation.github-actions/windows-container-run@v1.0.4
+      with:
+        docker-image: ${{ env.DOCKER_IMAGE }}
+        environment-variables: http_proxy;https_proxy;no_proxy;BUILD_TYPE;BUILD_DIR
+        script: >
+          .\scripts\test.ps1;
+
+    - name: Remove container if needed
+      shell: Powershell
+      if: ${{ always() }}
+      continue-on-error: true
+      run: docker rm --force ${{ steps.container-run-test.outputs.container-name }}
