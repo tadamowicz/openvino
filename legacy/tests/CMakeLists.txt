@@ -27,7 +27,7 @@ target_link_libraries(${TARGET_NAME}
     openvino::gtest_main
     openvino::ngraphFunctions
     openvino::commonTestUtils
-    openvino::funcTestUtils
+    openvino::func_test_utils
     inference_engine_legacy
 )
 

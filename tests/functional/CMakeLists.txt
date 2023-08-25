@@ -12,11 +12,16 @@ file(GLOB_RECURSE MODULE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR} *.cpp)
 file(GLOB_RECURSE MODULE_HEADERS ${CMAKE_CURRENT_SOURCE_DIR} *.hpp)
 
 add_executable(${TARGET_NAME} ${MODULE_SOURCES} ${MODULE_HEADERS})
+
+target_include_directories(${TARGET_NAME} 
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 target_link_libraries(${TARGET_NAME}
     openvino::gmock
     openvino::gtest
     openvino::gtest_main
-    openvino::funcTestUtils
+    openvino::func_test_utils
     openvino::funcSharedTests
     openvino::sharedTestClasses
 )

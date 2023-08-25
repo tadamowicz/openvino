@@ -8,7 +8,7 @@ project(OpenvinoGnaPlugin)
 
 find_package(OpenVINODeveloperPackage REQUIRED)
 
-set(GNA_LIB_VERSION "03.05.00.1906" CACHE STRING "GNA Library version number")
+set(GNA_LIB_VERSION "03.05.00.2116" CACHE STRING "GNA Library version number")
 set(GNA_ROOT_DIR ${OpenVINO_SOURCE_DIR}/temp/gna_${GNA_LIB_VERSION})
 
 set(GNA_PATH ${GNA_ROOT_DIR}/win64/x64)
@@ -42,14 +42,6 @@ file(GLOB_RECURSE SOURCES
 file(GLOB_RECURSE HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
         ${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp)
-
-# build avx2.cpp with AVX2 support, only for Windows
-if(ENABLE_AVX2 AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    ie_avx2_optimization_flags(avx2_flags)
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/pre_post_process/hw_accelerated_converter_avx2.cpp PROPERTIES COMPILE_OPTIONS "${avx2_flags}")
-    add_compile_definitions(HAVE_AVX2=1)
-endif()
-
 
 find_package(libGNA REQUIRED
              CONFIG
@@ -115,13 +107,6 @@ set_target_properties(${TARGET_NAME} ${TARGET_NAME}_test_static
 
 # install
 
-if(BUILD_SHARED_LIBS)
-    set(gna_component gna)
-else()
-    # during static build all plugins are part of the core, thus the dependencies as well
-    set(gna_component core)
-endif()
-
 file(GLOB_RECURSE gna_libraries "${libGNA_LIBRARIES_BASE_PATH}/*${CMAKE_SHARED_LIBRARY_SUFFIX}*")
 set(gna_library_installed OFF)
 
@@ -133,7 +118,7 @@ foreach(gna_lib IN LISTS gna_libraries)
     if(gna_lib MATCHES "^.*\.${CMAKE_SHARED_LIBRARY_SUFFIX}(\.[0-9]+)+$" OR WIN32 OR NOT BUILD_SHARED_LIBS)
         install(FILES ${gna_lib}
                 DESTINATION ${OV_CPACK_RUNTIMEDIR}
-                COMPONENT ${gna_component})
+                COMPONENT gna)
         set(gna_library_installed ON)
     endif()
 endforeach()
@@ -148,14 +133,14 @@ if(NOT BUILD_SHARED_LIBS)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/libGNAConfig.cmake ${CMAKE_BINARY_DIR} COPYONLY)
     install(FILES "${CMAKE_BINARY_DIR}/libGNAConfig.cmake"
             DESTINATION ${OV_CPACK_IE_CMAKEDIR}
-            COMPONENT ${gna_component})
+            COMPONENT gna)
 
     # install .lib file on Windows
     if(WIN32)
         file(GLOB_RECURSE gna_libraries  "${libGNA_LIBRARIES_BASE_PATH}/*${CMAKE_STATIC_LIBRARY_SUFFIX}")
         install(FILES ${gna_libraries}
                 DESTINATION ${OV_CPACK_LIBRARYDIR}
-                COMPONENT ${gna_component})
+                COMPONENT gna)
     endif()
 endif()
 

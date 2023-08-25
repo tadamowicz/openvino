@@ -39,7 +39,7 @@ target_include_directories(${TARGET_NAME}_obj PRIVATE
     $<TARGET_PROPERTY:openvino::pugixml,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:openvino_intel_gna_plugin,SOURCE_DIR>/src/ops)
 
-target_compile_definitions(${TARGET_NAME}_obj PRIVATE $<TARGET_PROPERTY:openvino::ngraph_reference,INTERFACE_COMPILE_DEFINITIONS>)
+target_compile_definitions(${TARGET_NAME}_obj PRIVATE $<TARGET_PROPERTY:openvino::reference,INTERFACE_COMPILE_DEFINITIONS>)
 
 target_link_libraries(${TARGET_NAME}_obj PRIVATE openvino::itt)
 
