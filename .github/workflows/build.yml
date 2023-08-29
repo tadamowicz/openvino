@@ -10,7 +10,7 @@ on:
         - "*"
 
 env:
-  DOCKER_IMAGE: 'harbor.pact.intel.com/common-windows/gna-plugin:v1.0'
+  DOCKER_IMAGE: 'harbor.pact.intel.com/common-windows/gna-plugin:v1.1'
   BUILD_TYPE: 'Release'
   BUILD_DIR: 'C:\code\build'
 
