@@ -21,12 +21,13 @@ U GetValueForKey(const T& key, const std::unordered_map<T, U>& mapping) {
 
 template <typename T, typename U>
 T GetKeyForValue(const U& value, const std::unordered_map<T, U>& mapping) {
+    std::cout << "GetKeyForValue(value=" << static_cast<int>(value) << ")" << std::endl;
     for (const auto& item : mapping) {
         if (item.second == value) {
             return item.first;
         }
     }
-    THROW_GNA_EXCEPTION << "Unsupported map value" << std::endl;
+    THROW_GNA_EXCEPTION << "Unsupported map value=" << static_cast<int>(value) << std::endl;
 }
 
 }  // namespace common
